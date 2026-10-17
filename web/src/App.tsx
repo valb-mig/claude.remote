@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { Redirect, Route, Switch } from 'wouter'
 import { BottomNav, ConnectionBanner } from '@/components/layout'
+import { startOutbox } from '@/lib/outbox'
 import { connect } from '@/lib/store'
 import { ChatPage } from '@/pages/chat'
 import { ComputerPage } from '@/pages/computer'
@@ -9,7 +10,10 @@ import { ProjectsPage } from '@/pages/projects'
 import { SessionsPage } from '@/pages/sessions'
 
 export default function App() {
-  useEffect(() => connect(), [])
+  useEffect(() => {
+    connect()
+    startOutbox()
+  }, [])
 
   return (
     <div className="mx-auto flex h-dvh max-w-2xl flex-col bg-background">

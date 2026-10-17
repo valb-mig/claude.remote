@@ -47,6 +47,7 @@ type RunOptions = Pick<PanelSessionOptions, 'model' | 'effort' | 'permissionMode
 
 const SAVED_CACHE_MS = 5_000;
 const COMMANDS_CACHE_MS = 10 * 60_000;
+const DELIVERED_MAX = 500;
 
 export type CommandInfo = { name: string; description: string; argumentHint: string; builtin: boolean };
 export type ModelOption = { value: string; resolvedModel?: string; displayName: string; efforts: string[] };
@@ -73,6 +74,8 @@ export class Manager extends EventEmitter {
   private savedCache?: { at: number; rows: SDKSessionInfo[] };
   private readonly commandsCache = new Map<string, { at: number; list: Promise<CommandInfo[]> }>();
   private modelsCache?: { at: number; list: Promise<ModelOption[]> };
+  /** `clientId` das últimas mensagens aceitas, em ordem de chegada. */
+  private readonly delivered = new Set<string>();
   private readonly live: LiveRegistry;
   private readonly meta: MetaStore;
 
@@ -189,10 +192,21 @@ export class Manager extends EventEmitter {
     return session;
   }
 
-  async send(sessionId: string, text: string, attachments?: Attachment[]): Promise<void> {
+  async send(sessionId: string, text: string, attachments?: Attachment[], clientId?: string): Promise<void> {
+    // Reenvio da fila do celular cuja resposta se perdeu no caminho: já foi entregue, não repete o turno.
+    if (clientId && this.delivered.has(clientId)) return;
     const session = this.get(sessionId);
-    const turn = await prepareTurn(session.id, text, attachments, imageStore.sink(session.id, `u${Date.now()}`));
-    session.send(turn.text, { blocks: turn.blocks, images: turn.images });
+    if (clientId) {
+      this.delivered.add(clientId);
+      if (this.delivered.size > DELIVERED_MAX) this.delivered.delete(this.delivered.values().next().value!);
+    }
+    try {
+      const turn = await prepareTurn(session.id, text, attachments, imageStore.sink(session.id, `u${Date.now()}`));
+      session.send(turn.text, { blocks: turn.blocks, images: turn.images, clientId });
+    } catch (err) {
+      if (clientId) this.delivered.delete(clientId);
+      throw err;
+    }
   }
 
   /** Comandos e skills para o autocompletar do "/", por projeto. */

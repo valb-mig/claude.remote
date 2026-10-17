@@ -116,7 +116,7 @@ app.post<{ Params: IdParams; Body: RunBody }>(
 
 app.post<{ Params: IdParams }>('/api/sessions/:id/release', async (req) => manager.release(req.params.id));
 
-app.post<{ Params: IdParams; Body: { text: string; attachments?: Attachment[] } }>(
+app.post<{ Params: IdParams; Body: { text: string; attachments?: Attachment[]; clientId?: string } }>(
   '/api/sessions/:id/messages',
   {
     bodyLimit: ATTACHMENT_BODY_LIMIT,
@@ -124,12 +124,12 @@ app.post<{ Params: IdParams; Body: { text: string; attachments?: Attachment[] } 
       body: {
         type: 'object',
         required: ['text'],
-        properties: { text: { type: 'string' }, attachments: attachmentsSchema },
+        properties: { text: { type: 'string' }, attachments: attachmentsSchema, clientId: { type: 'string', maxLength: 64 } },
       },
     },
   },
   async (req) => {
-    await manager.send(req.params.id, req.body.text, req.body.attachments);
+    await manager.send(req.params.id, req.body.text, req.body.attachments, req.body.clientId);
     return { ok: true };
   },
 );

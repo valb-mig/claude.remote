@@ -1,8 +1,10 @@
-import { FileText, Folder, Info, Loader2 } from 'lucide-react'
+import { CircleAlert, Clock, FileText, Folder, Info, Loader2 } from 'lucide-react'
 import { ImageThumb } from '@/components/image-viewer'
 import { Markdown } from '@/components/markdown'
 import { imageUrl } from '@/lib/api'
 import { duration } from '@/lib/format'
+import { discard, retryItem, type OutboxItem } from '@/lib/outbox'
+import { useStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { Activity } from './activity'
 import { ApprovalCard } from './approval-card'
@@ -22,6 +24,16 @@ function Divider({ children, className }: { children: React.ReactNode; className
 // Menção a arquivo: "@" no início ou depois de espaço (não pega e-mails).
 const MENTION = /(^|\s)(@[^\s]+)/g
 
+function FileChip({ name, title, dir }: { name: string; title: string; dir?: boolean }) {
+  const Icon = dir ? Folder : FileText
+  return (
+    <span title={title} className="mx-0.5 inline-flex max-w-full items-center gap-1 rounded bg-primary-foreground/15 px-1.5 align-bottom font-mono text-[0.85em]">
+      <Icon className="size-3 shrink-0" />
+      <span className="truncate">{name}</span>
+    </span>
+  )
+}
+
 /** Texto do usuário com as menções @caminho viradas etiquetas com o nome do arquivo. */
 function withMentions(text: string): React.ReactNode[] {
   const out: React.ReactNode[] = []
@@ -33,20 +45,15 @@ function withMentions(text: string): React.ReactNode[] {
     const dir = path.endsWith('/')
     // Anexos ganham um prefixo de timestamp no PC; ele não interessa aqui.
     const name = path.replace(/\/$/, '').split('/').pop()!.replace(/^\d{13}-/, '')
-    const Icon = dir ? Folder : FileText
-    out.push(
-      <span key={at} title={path} className="mx-0.5 inline-flex max-w-full items-center gap-1 rounded bg-primary-foreground/15 px-1.5 align-bottom font-mono text-[0.85em]">
-        <Icon className="size-3 shrink-0" />
-        <span className="truncate">{name}</span>
-      </span>,
-    )
+    out.push(<FileChip key={at} name={name} title={path} dir={dir} />)
     last = at + m[2].length
   }
   out.push(text.slice(last))
   return out
 }
 
-function UserBubble({ sessionId, text, images }: { sessionId: string; text: string; images?: string[] }) {
+/** `files`: anexos que ainda não viraram @caminho no PC (mensagem na fila). */
+function UserBubble({ sessionId, text, images, files }: { sessionId: string; text: string; images?: string[]; files?: string[] }) {
   return (
     <div className="flex flex-col items-end gap-1.5">
       {images && images.length > 0 && (
@@ -56,9 +63,48 @@ function UserBubble({ sessionId, text, images }: { sessionId: string; text: stri
           ))}
         </div>
       )}
-      {text && (
+      {(text || files?.length) && (
         <div className="max-w-[85%] rounded-2xl rounded-br-md bg-primary px-3.5 py-2 text-sm whitespace-pre-wrap break-words text-primary-foreground">
           {withMentions(text)}
+          {text && files?.length ? '\n\n' : null}
+          {files?.map((name, i) => <FileChip key={i} name={name} title={name} />)}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Mensagem que ainda não chegou ao PC: relógio enquanto espera, e o motivo se não deu para enviar. */
+function QueuedBubble({ item, sessionId }: { item: OutboxItem; sessionId: string }) {
+  const connection = useStore((s) => s.connection)
+  const images = item.attachments.flatMap((a) => (a.thumb ? [a.thumb] : []))
+  const files = item.attachments.flatMap((a) => (a.thumb ? [] : [a.name]))
+  const action = 'font-medium text-foreground underline-offset-2 hover:underline'
+  return (
+    <div className="space-y-1">
+      <UserBubble sessionId={sessionId} text={item.text} images={images} files={files} />
+      {item.status === 'failed' ? (
+        <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-xs">
+          <span className="flex min-w-0 items-center gap-1 text-red-600 dark:text-red-400">
+            <CircleAlert className="size-3.5 shrink-0" />
+            Não enviada: {item.error}
+          </span>
+          <button type="button" className={action} onClick={() => retryItem(item.id)}>
+            Tentar de novo
+          </button>
+          <button type="button" className={action} onClick={() => discard(item.id)}>
+            Descartar
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center justify-end gap-1 text-xs text-muted-foreground">
+          <Clock className="size-3" />
+          {item.status === 'sending' || connection === 'open' ? 'Enviando…' : 'Aguardando conexão'}
+          {item.status === 'queued' && (
+            <button type="button" className={cn(action, 'ml-2')} onClick={() => discard(item.id)}>
+              Cancelar
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -107,12 +153,15 @@ function ItemView({ item, sessionId, actionable }: { item: Item; sessionId: stri
 
 export function MessageList({
   items,
+  queued,
   sessionId,
   actionable,
   streaming,
   working,
 }: {
   items: Item[]
+  /** Mensagens na fila do celular, ainda não entregues ao PC. */
+  queued: OutboxItem[]
   sessionId: string
   /** Aprovações e perguntas só podem ser respondidas com a sessão aberta no painel. */
   actionable: boolean
@@ -123,6 +172,9 @@ export function MessageList({
     <div className="space-y-4 px-4 py-4">
       {items.map((item) => (
         <ItemView key={item.key} item={item} sessionId={sessionId} actionable={actionable} />
+      ))}
+      {queued.map((item) => (
+        <QueuedBubble key={item.id} item={item} sessionId={sessionId} />
       ))}
       {streaming && <Markdown text={streaming} className="opacity-90" />}
       {working && !streaming && (
