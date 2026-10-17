@@ -123,3 +123,9 @@ export type GitFile = {
 
 export type GitStatus = { branch: string | null; upstream: string | null; ahead: number; behind: number; files: GitFile[] }
 
+
+/** O que este aparelho quer receber além de perguntas, aprovações e erros, que sempre avisam. */
+export type PushPrefs = { done: boolean; pc: boolean }
+
+/** Aviso que o PC manda ao service worker (server/src/push.ts). */
+export type PushPayload = { title: string; body: string; tag: string; url: string; ts: number }
