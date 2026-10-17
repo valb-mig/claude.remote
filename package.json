@@ -1,0 +1,11 @@
+{
+  "name": "claude-remote",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter server dev",
+    "dev:web": "pnpm --filter web dev",
+    "build": "pnpm --filter web build",
+    "check": "pnpm --filter server check && pnpm --filter web exec tsc -b"
+  }
+}
