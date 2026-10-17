@@ -28,6 +28,7 @@ No chat:
   - **modo**: Manual, Editar automaticamente, Plano ou Automático, com o nível de esforço no mesmo menu;
   - **enviar**: muda de cor conforme o modo, e vira **parar** enquanto o Claude trabalha, com o campo vazio. Com texto, a mensagem entra na fila.
 - Numa conversa parada, modelo, esforço e modo escolhidos na caixa valem quando ela for retomada.
+- Sem internet, ou com o PC fora de alcance, a mensagem não se perde, como no WhatsApp: aparece com um relógio e **Aguardando conexão** e é enviada sozinha, na ordem, assim que a conexão volta, mesmo que o app tenha sido fechado nesse meio-tempo. Se não der para entregar (por exemplo, a sessão foi aberta no PC), ela fica marcada como **Não enviada**, com **Tentar de novo** e **Descartar**. Um reenvio nunca repete o turno no Claude.
 - Imagens que o Claude devolve (prints, imagens lidas) e as que você envia aparecem como miniatura. Tocar abre em tela cheia, com um botão para abrir o original.
 
 As ações do Claude aparecem num bloco separado das mensagens. As aprovações e as perguntas com opções aparecem como cartões, e o botão de lista no topo abre um resumo da sessão (arquivos alterados, testes, erros e comandos). Use o ditado do Gboard no campo de mensagem à vontade: Enter quebra linha, e o envio é pelo botão.
@@ -86,6 +87,7 @@ O serviço lê o frontend de `web/dist` a cada requisição, então um `pnpm bui
 
 Estrutura do frontend (`web/src`):
 - `lib/store.ts`: WebSocket com reconexão automática e retomada pelo último `seq`.
+- `lib/outbox.ts`: fila das mensagens ainda não entregues, guardada no IndexedDB e enviada quando a conexão volta.
 - `lib/api.ts`: cliente REST.
 - `pages/`: telas (sessões, projetos, nova sessão, computador, chat).
 - `components/chat/`: blocos de atividade, cartões de aprovação e de pergunta, campo de mensagem e resumo.

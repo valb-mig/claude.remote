@@ -24,18 +24,19 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const res = await fetch(path, {
     method,
     headers: body === undefined ? {} : { 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
+    signal,
   })
   const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
   if (!res.ok) throw new ApiError(res.status, data)
   return data as T
 }
 
-const post = <T = { ok: true }>(path: string, body: unknown = {}) => request<T>('POST', path, body)
+const post = <T = { ok: true }>(path: string, body: unknown = {}, signal?: AbortSignal) => request<T>('POST', path, body, signal)
 const sid = (id: string) => `/api/sessions/${encodeURIComponent(id)}`
 const project = (cwd: string, path?: string) =>
   `cwd=${encodeURIComponent(cwd)}${path !== undefined ? `&path=${encodeURIComponent(path)}` : ''}`
@@ -58,7 +59,9 @@ export const api = {
   takeover: (id: string) => post<{ sessionId: string }>(`${sid(id)}/takeover`),
   release: (id: string) => post<{ resumeCommand: string }>(`${sid(id)}/release`),
 
-  send: (id: string, text: string, attachments?: AttachmentPayload[]) => post(`${sid(id)}/messages`, { text, attachments }),
+  /** `clientId` identifica a mensagem da fila: reenviar a mesma não repete o turno. */
+  send: (id: string, body: { text: string; attachments?: AttachmentPayload[]; clientId?: string }, signal?: AbortSignal) =>
+    post(`${sid(id)}/messages`, body, signal),
   interrupt: (id: string) => post(`${sid(id)}/interrupt`),
   pin: (id: string, pinned: boolean) => post(`${sid(id)}/pin`, { pinned }),
   remove: (id: string) => post(`${sid(id)}/delete`),
@@ -100,6 +103,8 @@ export function errorMessage(err: unknown): string {
     case 'session_exited':
     case 'not_open_in_panel':
       return 'A sessão não está mais aberta no painel.'
+    case 'session_not_found':
+      return 'A conversa não existe mais.'
     default:
       return err.code
   }

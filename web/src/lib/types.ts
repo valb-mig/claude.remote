@@ -12,8 +12,8 @@ export type Question = {
 };
 
 export type PanelEvent =
-  /** `images`: chaves das imagens no PC (GET /api/sessions/:id/images/:key). */
-  | { kind: 'user'; text: string; images?: string[] }
+  /** `images`: chaves das imagens no PC (GET /api/sessions/:id/images/:key); `clientId`: ID na fila do celular. */
+  | { kind: 'user'; text: string; images?: string[]; clientId?: string }
   | { kind: 'notice'; text: string }
   | { kind: 'assistant'; text: string; parentToolUseId?: string | null }
   | { kind: 'thinking'; text: string }

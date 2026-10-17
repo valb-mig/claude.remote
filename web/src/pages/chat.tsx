@@ -48,6 +48,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { api, errorMessage } from '@/lib/api'
 import { projectName } from '@/lib/format'
 import { useGitStatus, useHome } from '@/lib/hooks'
+import { enqueue, useOutbox } from '@/lib/outbox'
 import { selectView, subscribe, unsubscribe, useStore } from '@/lib/store'
 import type { ContextUsage, LoggedEvent, RunOptions } from '@/lib/types'
 
@@ -151,6 +152,12 @@ export function ChatPage({ id }: { id: string }) {
     [history.events, panelOpen, view.events, view.runId],
   )
   const items = useMemo(() => buildItems(events), [events])
+  const outbox = useOutbox((s) => s.items)
+  const queued = useMemo(() => {
+    // O evento da mensagem costuma chegar pelo WebSocket antes da resposta do envio: aí ela já saiu da fila.
+    const delivered = new Set(view.events.flatMap((e) => (e.kind === 'user' && e.clientId ? [e.clientId] : [])))
+    return outbox.filter((i) => i.sessionId === id && !delivered.has(i.id))
+  }, [outbox, id, view.events])
   const turns = useMemo(() => view.events.filter((e) => e.kind === 'result').length, [view.events])
   const context = useContextUsage(id, panelOpen, turns)
   // Com projeto (não a pasta pessoal): explorador de arquivos e git no topo.
@@ -158,7 +165,7 @@ export function ChatPage({ id }: { id: string }) {
   const git = useGitStatus(project, turns)
   // Conversa parada: modelo/esforço/modo escolhidos agora valem quando ela for retomada.
   const [pending, setPending] = useState<RunOptions>({})
-  const { ref: scrollRef, onScroll } = useStickToBottom([items.length, view.streaming, history.events === null])
+  const { ref: scrollRef, onScroll } = useStickToBottom([items.length, queued.length, view.streaming, history.events === null])
 
   const resumeCommand = entry?.cwd ? `cd '${entry.cwd}' && claude --resume ${id}` : `claude --resume ${id}`
 
@@ -288,10 +295,17 @@ export function ChatPage({ id }: { id: string }) {
         ) : (
           <>
             {history.error && <p className="p-4 text-sm text-red-600 dark:text-red-400">{history.error}</p>}
-            {items.length === 0 && !working && !history.error && (
+            {items.length === 0 && queued.length === 0 && !working && !history.error && (
               <p className="p-4 text-center text-sm text-muted-foreground">Nenhuma mensagem ainda.</p>
             )}
-            <MessageList items={items} sessionId={id} actionable={panelOpen} streaming={view.streaming} working={working} />
+            <MessageList
+              items={items}
+              queued={queued}
+              sessionId={id}
+              actionable={panelOpen}
+              streaming={view.streaming}
+              working={working}
+            />
           </>
         )}
       </div>
@@ -318,8 +332,8 @@ export function ChatPage({ id }: { id: string }) {
           onChangeSettings={async (patch) => {
             await api.settings(id, patch)
           }}
-          onCompact={() => api.send(id, '/compact').then(() => undefined)}
-          onSend={(text, attachments) => api.send(id, text, attachments).then(() => undefined)}
+          onCompact={() => api.send(id, { text: '/compact' }).then(() => undefined)}
+          onSend={(text, attachments) => enqueue(id, text, attachments)}
           onInterrupt={() => api.interrupt(id).then(() => undefined)}
         />
       ) : (
@@ -331,10 +345,7 @@ export function ChatPage({ id }: { id: string }) {
           settings={pending}
           context={null}
           onChangeSettings={(patch) => setPending((p) => ({ ...p, ...patch }))}
-          onSend={async (text, attachments) => {
-            await api.open(id, pending)
-            await api.send(id, text, attachments)
-          }}
+          onSend={(text, attachments) => enqueue(id, text, attachments, pending)}
         />
       )}
 

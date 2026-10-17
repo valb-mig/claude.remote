@@ -37,7 +37,7 @@ export function Composer({
   context: ContextUsage | null
   onChangeSettings: (patch: RunOptions) => Promise<void> | void
   onCompact?: () => Promise<void>
-  onSend: (text: string, attachments: AttachmentPayload[]) => Promise<void>
+  onSend: (text: string, attachments: AttachmentPayload[]) => Promise<void> | void
   onInterrupt?: () => Promise<void>
 }) {
   const draft = drafts.get(sessionId)
