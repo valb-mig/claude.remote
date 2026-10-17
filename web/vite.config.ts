@@ -1,0 +1,54 @@
+import path from 'node:path'
+import tailwindcss from '@tailwindcss/vite'
+import react from '@vitejs/plugin-react'
+import { defineConfig } from 'vite'
+import { VitePWA } from 'vite-plugin-pwa'
+
+const backend = 'http://127.0.0.1:7337'
+
+export default defineConfig({
+  plugins: [
+    react(),
+    tailwindcss(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
+      manifest: {
+        name: 'Claude Remote',
+        short_name: 'Claude Remote',
+        description: 'Controle pelo celular das sessões do Claude Code no PC',
+        lang: 'pt-BR',
+        start_url: '/',
+        scope: '/',
+        display: 'standalone',
+        orientation: 'portrait',
+        background_color: '#0a0a0a',
+        theme_color: '#0a0a0a',
+        icons: [
+          { src: 'pwa-192.png', sizes: '192x192', type: 'image/png' },
+          { src: 'pwa-512.png', sizes: '512x512', type: 'image/png' },
+          { src: 'maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        ],
+      },
+      workbox: {
+        // Só o app shell vai para o cache; API e WebSocket sempre direto no PC.
+        navigateFallback: '/index.html',
+        navigateFallbackDenylist: [/^\/api\//, /^\/ws/],
+        globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+      },
+    }),
+  ],
+  define: {
+    __BUILD_TIME__: JSON.stringify(new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })),
+  },
+  resolve: {
+    alias: { '@': path.resolve(__dirname, './src') },
+  },
+  server: {
+    // Em dev o backend só aceita a própria origem; o proxy se apresenta como ele.
+    proxy: {
+      '/api': { target: backend, changeOrigin: true, headers: { origin: backend } },
+      '/ws': { target: backend.replace('http', 'ws'), ws: true, changeOrigin: true, headers: { origin: backend } },
+    },
+  },
+})
