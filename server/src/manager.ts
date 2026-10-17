@@ -1,0 +1,394 @@
+import { EventEmitter } from 'node:events';
+import { readdir, rm, stat } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { basename, join, resolve, sep } from 'node:path';
+import {
+  getSessionInfo,
+  deleteSession,
+  getSessionMessages,
+  listSessions,
+  renameSession,
+  type EffortLevel,
+  type PermissionMode,
+  type SDKSessionInfo,
+  type SlashCommand,
+} from '@anthropic-ai/claude-agent-sdk';
+import { PROJECT_ROOTS, UPLOADS_DIR } from './config.ts';
+import { HttpError } from './errors.ts';
+import { fromSessionMessage, type LoggedEvent } from './events.ts';
+import { stopPcSession, type LiveRegistry } from './live.ts';
+import { type Attachment, prepareTurn } from './attachments.ts';
+import { readPlanUsage } from './claude-usage.ts';
+import { PanelSession, probeCommands, withProbe, type PanelSessionOptions } from './panel-session.ts';
+import { searchProjectFiles } from './project-files.ts';
+import type { PlanUsage } from './system.ts';
+import { imageStore, type StoredImage } from './images.ts';
+import type { MetaStore } from './meta.ts';
+
+export type CatalogState = 'running' | 'waiting' | 'idle' | 'stopped';
+
+export type CatalogEntry = {
+  sessionId: string;
+  title: string;
+  cwd?: string;
+  gitBranch?: string;
+  lastModified: number;
+  /** Quem tem o processo vivo: o painel, o PC (terminal/VSCode/background) ou ninguém. */
+  owner: 'panel' | 'pc' | null;
+  state: CatalogState;
+  waitingFor?: string;
+  pcKind?: 'interactive' | 'background';
+  /** Aprovações e perguntas aguardando resposta (só sessões do painel). */
+  pending?: { requestId: string; kind: 'approval' | 'question' }[];
+  pinned?: boolean;
+};
+
+type RunOptions = Pick<PanelSessionOptions, 'model' | 'effort' | 'permissionMode'>;
+
+const SAVED_CACHE_MS = 5_000;
+const COMMANDS_CACHE_MS = 10 * 60_000;
+
+export type CommandInfo = { name: string; description: string; argumentHint: string; builtin: boolean };
+export type ModelOption = { value: string; resolvedModel?: string; displayName: string; efforts: string[] };
+
+// Comandos internos que no terminal abrem telas interativas; pelo celular não fazem sentido.
+const HIDDEN_BUILTINS = new Set([
+  'add-dir', 'agents', 'auto-mode-setup', 'bug', 'color', 'config', 'design-consent', 'design-revoke',
+  'doctor', 'exit', 'export', 'extra-usage', 'feedback', 'focus', 'heapdump', 'hooks', 'ide', 'import',
+  'insights', 'keybindings', 'list-agents', 'login', 'logout', 'mcp', 'memory', 'output-style',
+  'permissions', 'plugin', 'plugins', 'privacy-settings', 'quit', 'release-notes', 'resume', 'statusline',
+  'tasks', 'team-onboarding', 'terminal-setup', 'theme', 'upgrade', 'usage-credits', 'vim',
+]);
+
+/** Skills do usuário e de plugins primeiro; comandos internos depois. */
+function filterCommands(list: SlashCommand[]): CommandInfo[] {
+  return list
+    .filter((c) => !c.name.startsWith('_') && !(c.builtin && HIDDEN_BUILTINS.has(c.name)))
+    .map((c) => ({ name: c.name, description: c.description, argumentHint: c.argumentHint, builtin: Boolean(c.builtin) }))
+    .sort((a, b) => Number(a.builtin) - Number(b.builtin) || a.name.localeCompare(b.name));
+}
+
+export class Manager extends EventEmitter {
+  private readonly sessions = new Map<string, PanelSession>();
+  private savedCache?: { at: number; rows: SDKSessionInfo[] };
+  private readonly commandsCache = new Map<string, { at: number; list: Promise<CommandInfo[]> }>();
+  private modelsCache?: { at: number; list: Promise<ModelOption[]> };
+  private readonly live: LiveRegistry;
+  private readonly meta: MetaStore;
+
+  constructor(live: LiveRegistry, meta: MetaStore) {
+    super();
+    this.live = live;
+    this.meta = meta;
+    live.on('change', () => this.emit('catalog'));
+  }
+
+  get(sessionId: string): PanelSession {
+    const session = this.sessions.get(sessionId);
+    if (!session) throw new HttpError(404, 'not_open_in_panel');
+    return session;
+  }
+
+  find(sessionId: string): PanelSession | undefined {
+    return this.sessions.get(sessionId);
+  }
+
+  async catalog(): Promise<CatalogEntry[]> {
+    const saved = await this.saved();
+    const byId = new Map<string, CatalogEntry>();
+
+    for (const s of saved) {
+      const title = s.customTitle ?? s.summary;
+      byId.set(s.sessionId, {
+        sessionId: s.sessionId,
+        title: isDerivedName(title, s.cwd) ? (s.firstPrompt ?? title) : title,
+        cwd: s.cwd,
+        gitBranch: s.gitBranch,
+        lastModified: s.lastModified,
+        owner: null,
+        state: 'stopped',
+      });
+    }
+
+    for (const l of this.live.all()) {
+      const entry = byId.get(l.sessionId) ?? {
+        sessionId: l.sessionId,
+        title: l.name && !isDerivedName(l.name, l.cwd) ? l.name : '(sem título)',
+        cwd: l.cwd,
+        lastModified: l.startedAt,
+        owner: null,
+        state: 'stopped' as const,
+      };
+      entry.owner = 'pc';
+      entry.state = l.status === 'busy' ? 'running' : l.status;
+      entry.waitingFor = l.waitingFor;
+      entry.pcKind = l.kind;
+      byId.set(l.sessionId, entry);
+    }
+
+    // Sessões do painel por último: o processo headless também pode aparecer em `agents --json`.
+    for (const s of this.sessions.values()) {
+      const entry = byId.get(s.id) ?? {
+        sessionId: s.id,
+        title: s.label ?? '(nova sessão)',
+        cwd: s.cwd,
+        lastModified: s.startedAt,
+        owner: null,
+        state: 'stopped' as const,
+      };
+      // Até o Claude Code gerar o título, o rótulo do painel (ou o início do prompt) descreve melhor.
+      if (s.label && (entry.title === '(sem título)' || isDerivedName(entry.title, entry.cwd))) entry.title = s.label;
+      entry.owner = 'panel';
+      entry.state = s.state === 'starting' ? 'running' : s.state === 'exited' ? 'stopped' : s.state;
+      entry.waitingFor = s.waitingFor;
+      entry.pcKind = undefined;
+      entry.pending = s.pendingRequests();
+      byId.set(s.id, entry);
+    }
+
+    for (const entry of byId.values()) if (this.meta.isPinned(entry.sessionId)) entry.pinned = true;
+    return [...byId.values()].sort((a, b) => b.lastModified - a.lastModified);
+  }
+
+  /**
+   * Histórico salvo. Com a sessão aberta no painel, só o que existia antes do processo:
+   * o restante o cliente recebe pelo log de eventos, sem duplicar.
+   */
+  async history(sessionId: string, limit = 300): Promise<LoggedEvent[]> {
+    let messages = await getSessionMessages(sessionId);
+    const open = this.sessions.get(sessionId);
+    if (open) messages = messages.slice(0, open.priorMessages);
+    const events = messages.slice(-limit).flatMap((m) => fromSessionMessage(m, imageStore.sink(sessionId, m.uuid)));
+    // Histórico salvo não tem seq; numerado localmente só para o cliente ordenar.
+    return events.map((e, i) => ({ ...e, seq: i + 1, ts: 0 }) as LoggedEvent);
+  }
+
+  /** Diretórios candidatos para sessões novas: subpastas das raízes + cwds de conversas salvas. */
+  async projects(): Promise<string[]> {
+    const fromSessions = (await this.saved()).map((s) => s.cwd).filter((c): c is string => Boolean(c));
+    const fromRoots = await Promise.all(
+      PROJECT_ROOTS.map(async (root) => {
+        const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+        return entries.filter((e) => e.isDirectory() && !e.name.startsWith('.')).map((e) => join(root, e.name));
+      }),
+    );
+    return [...new Set([...fromSessions, ...fromRoots.flat()])].filter(isUnderRoots).sort();
+  }
+
+  async create(
+    opts: RunOptions & { cwd?: string; prompt: string; title?: string; attachments?: Attachment[] },
+  ): Promise<PanelSession> {
+    const { prompt, attachments, ...rest } = opts;
+    // Sem projeto: a sessão abre na pasta pessoal.
+    const cwd = resolve(opts.cwd || homedir());
+    if (!isAllowedCwd(cwd)) throw new HttpError(403, 'cwd_outside_roots', { roots: PROJECT_ROOTS });
+    const info = await stat(cwd).catch(() => null);
+    if (!info?.isDirectory()) throw new HttpError(400, 'cwd_not_a_directory');
+    const session = this.adopt(new PanelSession({ ...rest, cwd, label: opts.title || prompt.slice(0, 80) }));
+    await this.send(session.id, prompt, attachments);
+    return session;
+  }
+
+  async send(sessionId: string, text: string, attachments?: Attachment[]): Promise<void> {
+    const session = this.get(sessionId);
+    const turn = await prepareTurn(session.id, text, attachments, imageStore.sink(session.id, `u${Date.now()}`));
+    session.send(turn.text, { blocks: turn.blocks, images: turn.images });
+  }
+
+  /** Comandos e skills para o autocompletar do "/", por projeto. */
+  async commands(cwd: string): Promise<CommandInfo[]> {
+    const dir = await this.knownCwd(cwd);
+    const open = [...this.sessions.values()].find((s) => s.cwd === dir);
+    if (open) return filterCommands(await open.commands());
+    const hit = this.commandsCache.get(dir);
+    if (hit && Date.now() - hit.at < COMMANDS_CACHE_MS) return hit.list;
+    const list = probeCommands(dir).then(filterCommands);
+    this.commandsCache.set(dir, { at: Date.now(), list });
+    list.catch(() => this.commandsCache.delete(dir));
+    return list;
+  }
+
+  /** Modelos e níveis de esforço: pela sessão aberta no painel, se houver; senão por uma sonda (cache de 10 min). */
+  async models(): Promise<ModelOption[]> {
+    if (this.modelsCache && Date.now() - this.modelsCache.at < COMMANDS_CACHE_MS) return this.modelsCache.list;
+    const open = this.sessions.values().next().value;
+    const list = (open ? open.models() : withProbe(homedir(), (q) => q.supportedModels())).then((models) =>
+      models.map((m) => ({
+        value: m.value,
+        resolvedModel: m.resolvedModel,
+        displayName: m.displayName,
+        efforts: m.supportedEffortLevels ?? [],
+      })),
+    );
+    this.modelsCache = { at: Date.now(), list };
+    list.catch(() => (this.modelsCache = undefined));
+    return list;
+  }
+
+  /** Limites do plano: pela sessão aberta no painel, se houver; senão por uma sonda. */
+  async planUsage(): Promise<PlanUsage> {
+    const open = this.sessions.values().next().value;
+    return open ? open.planUsage() : withProbe(homedir(), readPlanUsage);
+  }
+
+  /** Arquivos do projeto para o autocompletar do "@". */
+  async files(cwd: string, query: string): Promise<string[]> {
+    return searchProjectFiles(await this.knownCwd(cwd), query);
+  }
+
+  /**
+   * Apaga a conversa do Claude Code (transcript e subagentes), os anexos e o "fixado".
+   * Recusa se ela estiver aberta no PC; aberta no painel, o processo é encerrado antes.
+   */
+  async delete(sessionId: string): Promise<void> {
+    const own = this.sessions.get(sessionId);
+    if (!own) {
+      await this.live.refresh();
+      if (this.live.get(sessionId)) throw new HttpError(409, 'live_on_pc');
+    }
+    await own?.shutdown();
+    await deleteSession(sessionId);
+    await rm(join(UPLOADS_DIR, sessionId), { recursive: true, force: true });
+    if (this.meta.isPinned(sessionId)) await this.meta.setPinned(sessionId, false);
+    this.savedCache = undefined;
+    this.emit('catalog');
+  }
+
+  /** Fixa ou desafixa no topo da lista (só no painel). */
+  async setPinned(sessionId: string, pinned: boolean): Promise<void> {
+    await this.meta.setPinned(sessionId, pinned);
+    this.emit('catalog');
+  }
+
+  /** Título gravado no próprio Claude Code: aparece também no /resume do terminal. */
+  async rename(sessionId: string, title: string): Promise<void> {
+    await renameSession(sessionId, title.trim());
+    this.savedCache = undefined;
+    this.emit('catalog');
+  }
+
+  /** Imagem do chat; se saiu do cache (ou o servidor reiniciou), recarrega o histórico e tenta de novo. */
+  async image(sessionId: string, key: string): Promise<StoredImage> {
+    let image = imageStore.get(sessionId, key);
+    if (!image) {
+      await this.history(sessionId, 5_000).catch(() => []);
+      image = imageStore.get(sessionId, key);
+    }
+    if (!image) throw new HttpError(404, 'image_not_found');
+    return image;
+  }
+
+  async updateSettings(
+    sessionId: string,
+    patch: { model?: string; effort?: EffortLevel; permissionMode?: PermissionMode },
+  ): Promise<void> {
+    const session = this.get(sessionId);
+    if (patch.model) await session.setModel(patch.model);
+    if (patch.effort) await session.setEffort(patch.effort);
+    if (patch.permissionMode) await session.setPermissionMode(patch.permissionMode);
+  }
+
+  /** Só diretórios de projetos conhecidos: raízes configuradas, a pasta pessoal ou cwd de alguma conversa. */
+  async knownCwd(cwd: string): Promise<string> {
+    const dir = resolve(cwd);
+    if (isAllowedCwd(dir) || (await this.saved()).some((s) => s.cwd === dir)) return dir;
+    throw new HttpError(403, 'unknown_project');
+  }
+
+  /** Retoma uma conversa salva no painel. Nunca em paralelo com um processo vivo no PC. */
+  async open(sessionId: string, opts: RunOptions & { fork?: boolean } = {}): Promise<PanelSession> {
+    const own = this.sessions.get(sessionId);
+    if (own && !opts.fork) return own;
+
+    const info = await getSessionInfo(sessionId);
+    if (!info?.cwd) throw new HttpError(404, 'session_not_found');
+
+    if (!opts.fork) {
+      await this.live.refresh();
+      const live = this.live.get(sessionId);
+      if (live) {
+        throw new HttpError(409, 'live_on_pc', { status: live.status, waitingFor: live.waitingFor, kind: live.kind });
+      }
+    }
+    const priorMessages = (await getSessionMessages(sessionId)).length;
+    return this.adopt(new PanelSession({ ...opts, cwd: info.cwd, resume: sessionId, priorMessages }));
+  }
+
+  /** Assumir: encerra a sessão ociosa no PC e a retoma no painel. */
+  async takeOver(sessionId: string, opts: RunOptions = {}): Promise<PanelSession> {
+    const own = this.sessions.get(sessionId);
+    if (own) return own;
+
+    await this.live.refresh();
+    const live = this.live.get(sessionId);
+    if (live) {
+      await stopPcSession(live);
+      await this.live.refresh();
+      if (this.live.get(sessionId)) throw new HttpError(409, 'still_live_on_pc');
+    }
+    return this.open(sessionId, opts);
+  }
+
+  /** Liberar: encerra o processo do painel para a sessão poder ser retomada no terminal. */
+  async release(sessionId: string): Promise<{ resumeCommand: string }> {
+    const session = this.get(sessionId);
+    await session.release();
+    return { resumeCommand: `cd ${shellQuote(session.cwd)} && claude --resume ${session.id}` };
+  }
+
+  async shutdown(): Promise<void> {
+    await Promise.all([...this.sessions.values()].map((s) => s.shutdown()));
+  }
+
+  private adopt(session: PanelSession): PanelSession {
+    this.sessions.set(session.id, session);
+    this.savedCache = undefined;
+    session.on('rekey', (from: string, to: string) => {
+      this.sessions.delete(from);
+      this.sessions.set(to, session);
+      this.emit('rekey', from, to);
+      this.emit('catalog');
+    });
+    session.on('event', (ev: LoggedEvent) => this.emit('event', session.id, ev, session.runId));
+    session.on('delta', (text: string) => this.emit('delta', session.id, text));
+    session.on('state', () => this.emit('catalog'));
+    session.on('exit', () => {
+      this.sessions.delete(session.id);
+      this.savedCache = undefined;
+      this.emit('catalog');
+    });
+    this.emit('catalog');
+    return session;
+  }
+
+  private async saved(): Promise<SDKSessionInfo[]> {
+    if (this.savedCache && Date.now() - this.savedCache.at < SAVED_CACHE_MS) return this.savedCache.rows;
+    const rows = await listSessions();
+    this.savedCache = { at: Date.now(), rows };
+    return rows;
+  }
+}
+
+/** Raízes de projetos e a pasta pessoal em si (não as subpastas dela). */
+function isAllowedCwd(dir: string): boolean {
+  return dir === homedir() || isUnderRoots(dir);
+}
+
+function isUnderRoots(dir: string): boolean {
+  const abs = resolve(dir);
+  return PROJECT_ROOTS.some((root) => abs === resolve(root) || abs.startsWith(resolve(root) + sep));
+}
+
+/**
+ * Nome provisório que o Claude Code dá à sessão ("claude-remote-86") até gerar o título;
+ * nesse intervalo o primeiro prompt descreve melhor a conversa.
+ */
+function isDerivedName(title: string, cwd?: string): boolean {
+  if (!cwd) return false;
+  const slug = basename(cwd).toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  return new RegExp(`^${slug}-[0-9a-f]{2}$`).test(title);
+}
+
+function shellQuote(s: string): string {
+  return `'${s.replaceAll("'", `'\\''`)}'`;
+}

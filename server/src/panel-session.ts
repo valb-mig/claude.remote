@@ -1,0 +1,449 @@
+import { randomUUID } from 'node:crypto';
+import { EventEmitter } from 'node:events';
+import {
+  query,
+  type CanUseTool,
+  type EffortLevel,
+  type PermissionMode,
+  type PermissionResult,
+  type PermissionUpdate,
+  type Query,
+  type SDKMessage,
+  type SDKUserMessage,
+  type ModelInfo,
+  type SlashCommand,
+} from '@anthropic-ai/claude-agent-sdk';
+import { imageStore } from './images.ts';
+import { UPLOADS_DIR, childEnv } from './config.ts';
+import { readPlanUsage } from './claude-usage.ts';
+import type { PlanUsage } from './system.ts';
+import { HttpError } from './errors.ts';
+import {
+  fromSdkMessage,
+  parseQuestions,
+  type LoggedEvent,
+  type PanelEvent,
+  type Question,
+  type SessionState,
+} from './events.ts';
+
+const MAX_EVENTS = 5_000;
+
+export type ContentBlocks = Exclude<SDKUserMessage['message']['content'], string>;
+
+/** Fila de prompts que mantém o processo headless vivo entre turnos. */
+class InputQueue implements AsyncIterable<SDKUserMessage> {
+  private items: SDKUserMessage[] = [];
+  private waiters: ((r: IteratorResult<SDKUserMessage>) => void)[] = [];
+  private closed = false;
+
+  push(item: SDKUserMessage): void {
+    if (this.closed) throw new HttpError(409, 'session_closed');
+    const waiter = this.waiters.shift();
+    if (waiter) waiter({ value: item, done: false });
+    else this.items.push(item);
+  }
+
+  close(): void {
+    this.closed = true;
+    for (const waiter of this.waiters.splice(0)) waiter({ value: undefined, done: true });
+  }
+
+  [Symbol.asyncIterator](): AsyncIterator<SDKUserMessage> {
+    return {
+      next: () => {
+        const item = this.items.shift();
+        if (item) return Promise.resolve({ value: item, done: false });
+        if (this.closed) return Promise.resolve({ value: undefined, done: true });
+        return new Promise((resolve) => this.waiters.push(resolve));
+      },
+    };
+  }
+}
+
+type PendingKind = 'approval' | 'question';
+
+/** Algo que trava o turno até o usuário responder: aprovação de ferramenta ou pergunta do Claude. */
+type Pending = {
+  kind: PendingKind;
+  input: Record<string, unknown>;
+  suggestions?: PermissionUpdate[];
+  questions?: Question[];
+  resolve: (result: PermissionResult) => void;
+};
+
+export type PanelSessionOptions = {
+  cwd: string;
+  /** Rótulo para o catálogo até a conversa ganhar título (rótulo do usuário ou início do prompt). */
+  label?: string;
+  resume?: string;
+  fork?: boolean;
+  model?: string;
+  effort?: EffortLevel;
+  permissionMode?: PermissionMode;
+  title?: string;
+  /** Mensagens que a conversa já tinha antes deste processo (o resto chega pelo log de eventos). */
+  priorMessages?: number;
+};
+
+/**
+ * Sessão cujo único dono é o painel: um processo headless do Claude Code
+ * dirigido pelo Agent SDK, com entrada em streaming e aprovações remotas.
+ */
+export class PanelSession extends EventEmitter {
+  id: string;
+  readonly cwd: string;
+  readonly startedAt = Date.now();
+  /** Identifica este processo: o `seq` recomeça a cada abertura da mesma conversa. */
+  readonly runId = randomUUID().slice(0, 8);
+  readonly priorMessages: number;
+  readonly label?: string;
+  state: SessionState;
+  waitingFor?: string;
+  /** Modelo, esforço e modo vigentes; cada mudança vira um evento `settings`. */
+  settings: { model?: string; effort?: string | null; permissionMode?: string } = {};
+
+  private seq = 0;
+  private readonly log: LoggedEvent[] = [];
+  private readonly input = new InputQueue();
+  private readonly pending = new Map<string, Pending>();
+  private readonly q: Query;
+  private stderrTail = '';
+  private commandsCache?: Promise<SlashCommand[]>;
+  private modelsCache?: Promise<ModelInfo[]>;
+  private exited: Promise<void>;
+
+  constructor(opts: PanelSessionOptions) {
+    super();
+    this.cwd = opts.cwd;
+    this.priorMessages = opts.priorMessages ?? 0;
+    this.label = opts.label;
+    // Sessão nova recebe um ID conhecido de antemão; numa bifurcação o ID chega no init.
+    const freshId = opts.resume ? undefined : randomUUID();
+    this.id = opts.resume ?? freshId!;
+    this.state = 'idle';
+
+    this.q = query({
+      prompt: this.input,
+      options: {
+        cwd: opts.cwd,
+        resume: opts.resume,
+        forkSession: opts.fork,
+        sessionId: freshId,
+        model: opts.model,
+        effort: opts.effort,
+        permissionMode: opts.permissionMode,
+        title: opts.title,
+        // Anexos do celular ficam fora do projeto; liberados para leitura sem pedir aprovação.
+        additionalDirectories: [UPLOADS_DIR],
+        systemPrompt: { type: 'preset', preset: 'claude_code' },
+        settingSources: ['user', 'project', 'local'],
+        includePartialMessages: true,
+        canUseTool: this.canUseTool,
+        env: childEnv(),
+        stderr: (data) => {
+          this.stderrTail = (this.stderrTail + data).slice(-4_000);
+        },
+      },
+    });
+
+    // Já nasce com o que foi pedido: a barra mostra modelo/esforço/modo antes do primeiro turno.
+    if (opts.model || opts.effort || opts.permissionMode) {
+      this.updateSettings({ model: opts.model, effort: opts.effort ?? null, permissionMode: opts.permissionMode });
+    }
+    this.exited = this.pump();
+  }
+
+  // ---- API usada pelo manager ----
+
+  /** Envia um turno; `blocks` (imagens) vão antes do texto, `images` são as miniaturas para o chat. */
+  send(text: string, extra: { blocks?: ContentBlocks; images?: string[] } = {}): void {
+    if (this.state === 'exited') throw new HttpError(409, 'session_exited');
+    this.record({ kind: 'user', text, images: extra.images?.length ? extra.images : undefined });
+    const content = extra.blocks?.length ? [...extra.blocks, ...(text ? [{ type: 'text' as const, text }] : [])] : text;
+    this.input.push({ type: 'user', message: { role: 'user', content }, parent_tool_use_id: null });
+    if (this.pending.size === 0) this.setState('running');
+  }
+
+  // ---- controles da sessão (modelo, esforço, modo) ----
+
+  async setModel(model: string): Promise<void> {
+    await this.q.setModel(model);
+    this.updateSettings({ model });
+  }
+
+  async setEffort(effort: EffortLevel): Promise<void> {
+    await this.q.applyFlagSettings({ effortLevel: effort });
+    this.updateSettings({ effort });
+  }
+
+  async setPermissionMode(mode: PermissionMode): Promise<void> {
+    await this.q.setPermissionMode(mode);
+    this.updateSettings({ permissionMode: mode });
+  }
+
+  /** Ocupação do contexto e o ponto em que a compactação automática começa. */
+  async contextUsage() {
+    const c = await this.q.getContextUsage({ detail: 'summary' });
+    return {
+      model: c.model,
+      totalTokens: c.totalTokens,
+      maxTokens: c.maxTokens,
+      autoCompactThreshold: c.autoCompactThreshold ?? null,
+      autoCompactEnabled: c.isAutoCompactEnabled,
+    };
+  }
+
+  /** Modelos disponíveis, com os níveis de esforço de cada um (consulta o processo uma vez). */
+  models(): Promise<ModelInfo[]> {
+    this.modelsCache ??= this.q.supportedModels();
+    return this.modelsCache;
+  }
+
+  /** Uso do plano consultado pelo próprio processo desta sessão (evita subir uma sonda). */
+  planUsage(): Promise<PlanUsage> {
+    return readPlanUsage(this.q);
+  }
+
+  /** Comandos e skills disponíveis nesta sessão (consulta o processo uma vez). */
+  commands(): Promise<SlashCommand[]> {
+    this.commandsCache ??= this.q.supportedCommands();
+    return this.commandsCache;
+  }
+
+  answer(requestId: string, decision: { allow: boolean; message?: string; always?: boolean }): void {
+    const pending = this.findPending(requestId, 'approval');
+    this.pending.delete(requestId);
+    pending.resolve(
+      decision.allow
+        ? {
+            behavior: 'allow',
+            updatedInput: pending.input,
+            updatedPermissions: decision.always ? pending.suggestions : undefined,
+          }
+        : { behavior: 'deny', message: decision.message ?? 'Negado pelo usuário no painel.' },
+    );
+    this.record({ kind: 'approval_resolved', requestId, decision: decision.allow ? 'allow' : 'deny' });
+    this.afterResolve();
+  }
+
+  /**
+   * Responde uma pergunta do Claude. `answers` mapeia o texto de cada pergunta para a
+   * opção escolhida (várias separadas por vírgula, ou texto livre para "Outro").
+   */
+  answerQuestion(requestId: string, reply: { answers?: Record<string, string>; decline?: boolean }): void {
+    const pending = this.findPending(requestId, 'question');
+
+    if (reply.decline) {
+      this.pending.delete(requestId);
+      pending.resolve({ behavior: 'deny', message: 'O usuário preferiu não responder a pergunta.' });
+      this.record({ kind: 'question_resolved', requestId, decision: 'declined' });
+      return this.afterResolve();
+    }
+
+    const answers = reply.answers ?? {};
+    const expected = (pending.questions ?? []).map((q) => q.question);
+    const missing = expected.filter((q) => !answers[q]?.trim());
+    const unknown = Object.keys(answers).filter((q) => !expected.includes(q));
+    if (missing.length || unknown.length) throw new HttpError(400, 'invalid_answers', { missing, unknown });
+
+    this.pending.delete(requestId);
+    pending.resolve({ behavior: 'allow', updatedInput: { ...pending.input, answers } });
+    this.record({ kind: 'question_resolved', requestId, decision: 'answered', answers });
+    this.afterResolve();
+  }
+
+  async interrupt(): Promise<void> {
+    if (this.state === 'exited') throw new HttpError(409, 'session_exited');
+    await this.q.interrupt();
+  }
+
+  /** Devolve a sessão ao PC: encerra o processo headless, desde que esteja ocioso. */
+  async release(): Promise<void> {
+    if (this.state === 'running' || this.state === 'waiting') {
+      throw new HttpError(409, 'session_busy', { state: this.state });
+    }
+    await this.shutdown();
+  }
+
+  /** Encerramento incondicional (ex.: desligamento do servidor). */
+  async shutdown(): Promise<void> {
+    for (const [requestId, pending] of this.pending) {
+      pending.resolve({ behavior: 'deny', message: 'Sessão encerrada pelo painel.' });
+      this.recordCancelled(requestId, pending.kind);
+    }
+    this.pending.clear();
+    this.input.close();
+    const timeout = new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 10_000));
+    if ((await Promise.race([this.exited, timeout])) === 'timeout') {
+      this.q.close();
+      await this.exited;
+    }
+  }
+
+  /** Eventos após `sinceSeq`; `reset` indica que o cliente perdeu eventos já descartados. */
+  eventsSince(sinceSeq: number): { reset: boolean; events: LoggedEvent[] } {
+    const first = this.log[0]?.seq ?? this.seq + 1;
+    if (sinceSeq < first - 1) return { reset: true, events: [...this.log] };
+    return { reset: false, events: this.log.filter((e) => e.seq > sinceSeq) };
+  }
+
+  pendingRequests(): { requestId: string; kind: PendingKind }[] {
+    return [...this.pending].map(([requestId, p]) => ({ requestId, kind: p.kind }));
+  }
+
+  // ---- internos ----
+
+  private canUseTool: CanUseTool = (toolName, input, opts) =>
+    new Promise<PermissionResult>((resolve) => {
+      const requestId = randomUUID().slice(0, 8);
+      // Pergunta malformada cai no fluxo de aprovação comum, que ao menos mostra o input.
+      const questions = toolName === 'AskUserQuestion' ? parseQuestions(input) : [];
+      const kind: PendingKind = questions.length ? 'question' : 'approval';
+      this.pending.set(requestId, { kind, input, suggestions: opts.suggestions, questions, resolve });
+
+      if (kind === 'question') {
+        this.setState('waiting', 'input needed');
+        this.record({ kind: 'question_request', requestId, questions });
+      } else {
+        this.setState('waiting', 'permission prompt');
+        this.record({
+          kind: 'approval_request',
+          requestId,
+          toolName,
+          input,
+          title: opts.title,
+          decisionReason: opts.decisionReason,
+          blockedPath: opts.blockedPath,
+          canAlwaysAllow: Boolean(opts.suggestions?.length),
+        });
+      }
+
+      opts.signal.addEventListener(
+        'abort',
+        () => {
+          if (!this.pending.delete(requestId)) return;
+          resolve({ behavior: 'deny', message: 'Cancelado.' });
+          this.recordCancelled(requestId, kind);
+        },
+        { once: true },
+      );
+    });
+
+  private findPending(requestId: string, kind: PendingKind): Pending {
+    const pending = this.pending.get(requestId);
+    if (!pending) throw new HttpError(404, 'request_not_found');
+    if (pending.kind !== kind) throw new HttpError(409, kind === 'approval' ? 'is_a_question' : 'is_an_approval');
+    return pending;
+  }
+
+  /** Volta a `running` quando nada mais trava o turno; senão reflete o que ainda falta. */
+  private afterResolve(): void {
+    const next = this.pending.values().next().value;
+    if (!next) this.setState('running');
+    else this.setState('waiting', next.kind === 'question' ? 'input needed' : 'permission prompt');
+  }
+
+  private recordCancelled(requestId: string, kind: PendingKind): void {
+    this.record(
+      kind === 'question'
+        ? { kind: 'question_resolved', requestId, decision: 'cancelled' }
+        : { kind: 'approval_resolved', requestId, decision: 'cancelled' },
+    );
+  }
+
+  private async pump(): Promise<void> {
+    let error: string | undefined;
+    try {
+      for await (const msg of this.q) this.handle(msg);
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+      if (this.stderrTail) error += `\n${this.stderrTail.trim()}`;
+    }
+    this.setState('exited');
+    this.record({ kind: 'exit', error });
+    this.emit('exit');
+  }
+
+  private handle(msg: SDKMessage): void {
+    if (msg.type === 'system' && msg.subtype === 'init') {
+      if (msg.session_id !== this.id) {
+        const from = this.id;
+        this.id = msg.session_id;
+        this.emit('rekey', from, this.id);
+      }
+      // O init nem sempre traz o esforço; sem ele, vale o último escolhido.
+      this.updateSettings({ model: msg.model, effort: msg.effort ?? this.settings.effort ?? null, permissionMode: msg.permissionMode });
+    }
+    // O modo muda sozinho, por exemplo ao aprovar a saída do modo de plano.
+    if (msg.type === 'system' && msg.subtype === 'status' && msg.permissionMode) {
+      this.updateSettings({ permissionMode: msg.permissionMode });
+    }
+    if (msg.type === 'system' && msg.subtype === 'session_state_changed') {
+      if (msg.state === 'running') this.setState('running');
+      else if (msg.state === 'idle') this.setState('idle');
+      else this.setState('waiting', this.waitingFor ?? 'input needed');
+    }
+    if (msg.type === 'result' && this.pending.size === 0) this.setState('idle');
+
+    // Resultados de ferramentas podem trazer imagens (prints, arquivos lidos): vão para o cache.
+    const sink = msg.type === 'user' ? imageStore.sink(this.id, (msg as { uuid?: string }).uuid ?? randomUUID()) : undefined;
+    const { events, delta } = fromSdkMessage(msg, sink);
+    for (const ev of events) this.record(ev);
+    if (delta) this.emit('delta', delta);
+  }
+
+  private updateSettings(patch: PanelSession['settings']): void {
+    const next = { ...this.settings, ...patch };
+    if (JSON.stringify(next) === JSON.stringify(this.settings)) return;
+    this.settings = next;
+    this.record({ kind: 'settings', ...next });
+  }
+
+  private setState(state: SessionState, waitingFor?: string): void {
+    if (this.state === 'exited') return;
+    if (state === this.state && waitingFor === this.waitingFor) return;
+    this.state = state;
+    this.waitingFor = state === 'waiting' ? waitingFor : undefined;
+    this.record({ kind: 'state', state, waitingFor: this.waitingFor });
+    this.emit('state');
+  }
+
+  private record(ev: PanelEvent): void {
+    const logged = { ...ev, seq: ++this.seq, ts: Date.now() } as LoggedEvent;
+    this.log.push(logged);
+    if (this.log.length > MAX_EVENTS) this.log.shift();
+    this.emit('event', logged);
+  }
+}
+
+/**
+ * Sobe um processo só para consultas de controle (lista de comandos, uso do plano):
+ * não chama o modelo, não grava conversa e é encerrado em seguida.
+ */
+export async function withProbe<T>(cwd: string, fn: (q: Query) => Promise<T>): Promise<T> {
+  const input = new InputQueue();
+  const q = query({
+    prompt: input,
+    options: {
+      cwd,
+      env: childEnv(),
+      persistSession: false,
+      settingSources: ['user', 'project', 'local'],
+      systemPrompt: { type: 'preset', preset: 'claude_code' },
+    },
+  });
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new HttpError(504, 'probe_timeout')), 20_000);
+  });
+  try {
+    return await Promise.race([fn(q), timeout]);
+  } finally {
+    clearTimeout(timer);
+    input.close();
+    q.close();
+  }
+}
+
+export const probeCommands = (cwd: string) => withProbe(cwd, (q) => q.supportedCommands());
