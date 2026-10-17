@@ -22,6 +22,24 @@ O PC fica ligado com o servidor rodando como serviço, e o celular acessa pela s
 - **Claude Code** instalado e logado: rode `claude` uma vez e faça o login. O painel usa as mesmas credenciais e o mesmo histórico de `~/.claude`.
 - **Tailscale** no PC e no celular, logados na mesma conta.
 
+### Jeito rápido: o instalador
+
+Com os requisitos acima prontos (e o Tailscale com **MagicDNS** e **HTTPS Certificates** ligados no [painel de DNS](https://login.tailscale.com/admin/dns)):
+
+```sh
+git clone https://github.com/valb-mig/claude.remote.git ~/Projects/claude.remote
+cd ~/Projects/claude.remote
+./deploy/install.sh
+```
+
+O script compila o app, sobe o serviço systemd (ajustando o caminho, o shell e o Node à sua máquina), publica na tailnet com `tailscale serve` e instala o comando `cr`. No fim, ele imprime o **link de acesso remoto** que o celular vai abrir. Depois, de qualquer terminal:
+
+```sh
+cr -link        # mostra o link de acesso remoto da tailnet
+```
+
+O instalador é idempotente, então pode rodar de novo sem medo. Se preferir entender cada etapa, siga os passos manuais abaixo.
+
 ### 1. Baixar e compilar
 
 ```sh
@@ -173,6 +191,7 @@ No campo de mensagem, tanto no chat quanto em "Nova sessão":
 systemctl --user status claude-remote
 systemctl --user restart claude-remote     # após mudar o código do servidor
 journalctl --user -u claude-remote -f      # logs
+cr -link                                   # link de acesso remoto (atalho)
 tailscale serve status                     # acesso remoto
 tailscale serve --https=443 off            # desligar o acesso remoto
 ```
