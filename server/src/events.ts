@@ -13,8 +13,11 @@ export type Question = {
 
 /** Evento normalizado enviado ao celular; o mesmo formato serve para histórico e tempo real. */
 export type PanelEvent =
-  /** `images`: chaves no cache de imagens (GET /api/sessions/:id/images/:key). */
-  | { kind: 'user'; text: string; images?: string[] }
+  /**
+   * `images`: chaves no cache de imagens (GET /api/sessions/:id/images/:key).
+   * `clientId`: ID da mensagem na fila do celular, para ele saber que ela chegou.
+   */
+  | { kind: 'user'; text: string; images?: string[]; clientId?: string }
   | { kind: 'notice'; text: string }
   | { kind: 'assistant'; text: string; parentToolUseId?: string | null }
   | { kind: 'thinking'; text: string }
