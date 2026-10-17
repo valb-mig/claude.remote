@@ -1,13 +1,119 @@
+<img src="web/public/pwa-192.png" width="96" alt="Logo: notebook com terminal e celular ligados por sinal">
+
 # claude.remote
 
 Painel pessoal para controlar pelo celular as sessões do Claude Code que rodam no PC. O PC executa tudo; o celular é o controle remoto, acessado pela rede Tailscale.
 
 Estado atual: backend e frontend funcionando; o PWA é React + Vite + shadcn/ui. O histórico técnico está em [docs/investigacao-tecnica.md](docs/investigacao-tecnica.md).
 
-## Usar pelo celular
+## Instalar na sua máquina
 
-1. Com o Tailscale conectado no celular, abra **https://arch.tail59085e.ts.net** no Chrome.
-2. No menu do Chrome, toque em **Instalar app** (ou **Adicionar à tela inicial**). O painel passa a abrir como um app.
+O PC fica ligado com o servidor rodando como serviço, e o celular acessa pela sua rede Tailscale. Não há nuvem no meio nem senha: só aparelhos da sua tailnet chegam ao painel.
+
+### Requisitos
+
+- **Linux com systemd.** O servidor roda como serviço de usuário, e o quadro do computador lê CPU e memória de `/proc`.
+- **Node.js 22.18 ou mais novo.** O servidor roda o TypeScript direto, sem etapa de build (testado no 26).
+- **pnpm:** `npm install -g pnpm`.
+- **Claude Code** instalado e logado: rode `claude` uma vez e faça o login. O painel usa as mesmas credenciais e o mesmo histórico de `~/.claude`.
+- **Tailscale** no PC e no celular, logados na mesma conta.
+
+### 1. Baixar e compilar
+
+```sh
+git clone https://github.com/valb-mig/claude.remote.git ~/Projects/claude.remote
+cd ~/Projects/claude.remote
+pnpm install
+pnpm build        # gera web/dist, o app que o servidor entrega ao celular
+```
+
+O serviço do passo 3 espera o projeto em `~/Projects/claude.remote`. Se clonar em outro lugar, ajuste o `WorkingDirectory` dele.
+
+### 2. Testar à mão
+
+```sh
+pnpm --filter server start
+curl http://127.0.0.1:7337/api/health      # em outro terminal: deve responder {"ok":true,...}
+```
+
+Abrir http://127.0.0.1:7337 no navegador do PC já mostra o painel. Pare com Ctrl+C.
+
+### 3. Deixar rodando como serviço
+
+O arquivo [`deploy/claude-remote.service`](deploy/claude-remote.service) sobe o servidor pelo shell interativo (`zsh -lic`) para herdar o PATH e as variáveis do seu `~/.zshrc`. Assim, o Claude aberto pelo celular enxerga as mesmas ferramentas do terminal (git, node, java…). Antes de instalar, confira o `ExecStart`:
+
+- usa **bash** em vez de zsh? Troque `/usr/bin/zsh -lic` por `/bin/bash -lic`;
+- o Node veio do nvm, fnm, mise ou asdf? Troque `/usr/bin/node` só por `node`, que o shell encontra no PATH.
+
+```sh
+systemctl --user link ~/Projects/claude.remote/deploy/claude-remote.service
+systemctl --user enable --now claude-remote
+loginctl enable-linger "$USER"             # sobe no boot, mesmo sem login no PC
+systemctl --user status claude-remote
+```
+
+Se editar o arquivo depois de instalado, rode `systemctl --user daemon-reload` e reinicie o serviço.
+
+### 4. Publicar na sua tailnet
+
+No [painel de DNS do Tailscale](https://login.tailscale.com/admin/dns), deixe ligados **MagicDNS** e **HTTPS Certificates**. Depois, no PC:
+
+```sh
+tailscale serve --bg 7337      # se der "access denied": sudo tailscale set --operator="$USER"
+tailscale serve status         # mostra o endereço, algo como https://seu-pc.tail1234.ts.net
+```
+
+A configuração do `--bg` sobrevive a reinícios. O servidor só escuta em `127.0.0.1`; o `tailscale serve` é a única porta de entrada, com HTTPS e só para a sua tailnet.
+
+### 5. Instalar no celular
+
+1. Com o Tailscale ligado no celular, abra no Chrome o endereço do passo 4.
+2. No menu ⋮, toque em **Instalar app** (ou **Adicionar à tela inicial**). No iPhone, pelo Safari: **Compartilhar → Adicionar à Tela de Início**.
+
+O painel passa a abrir como um app.
+
+### Quem pode acessar
+
+O servidor confere o login do Tailscale de quem acessa (o `tailscale serve` informa no cabeçalho `Tailscale-User-Login`). Por padrão, só entra o dono do PC na tailnet. Para liberar outra conta, use `ALLOWED_LOGINS`: ela substitui o padrão, então inclua o seu login também.
+
+### Configuração
+
+| Variável | Padrão | Para quê |
+|---|---|---|
+| `PORT` | `7337` | Porta local; o `tailscale serve` precisa apontar para ela |
+| `PROJECT_ROOTS` | `~/Projects` | Pastas onde o celular pode abrir projetos, separadas por `:` |
+| `ALLOWED_LOGINS` | o dono do PC | Logins do Tailscale com acesso, separados por `,` |
+| `EXTRA_ORIGINS` | (nenhuma) | Origens extras aceitas do navegador, separadas por `,` |
+| `UPLOADS_DIR` | `~/.cache/claude-remote/uploads` | Onde ficam os anexos enviados pelo celular |
+| `CLAUDE_CONFIG_DIR` | `~/.claude` | Configuração e histórico do Claude Code, se você usa outra pasta |
+
+No serviço, defina com `systemctl --user edit claude-remote` e depois `systemctl --user restart claude-remote`:
+
+```ini
+[Service]
+Environment=PROJECT_ROOTS=%h/Projects:%h/code
+```
+
+### Problemas comuns
+
+- **A página não abre no celular:** confira se o Tailscale está ligado nos dois aparelhos e se `tailscale serve status` aponta para a porta 7337.
+- **Erro `tailnet_identity_required`:** o celular está em outra conta do Tailscale; ponha os dois logins em `ALLOWED_LOGINS`.
+- **Erro `host_not_allowed`:** acesse pelo nome `https://….ts.net`, não pelo IP.
+- **Pelo celular, o Claude não acha ferramentas que existem no terminal:** o serviço não carregou o seu shell. Revise o `ExecStart` (passo 3).
+- **Logo depois de ligar o PC, só o acesso local funciona:** o serviço pode subir antes do Tailscale; ele tenta de novo a cada 15 s.
+- **Qualquer outra coisa:** `journalctl --user -u claude-remote -f` mostra os logs.
+
+### Atualizar
+
+```sh
+cd ~/Projects/claude.remote
+git pull
+pnpm install
+pnpm build
+systemctl --user restart claude-remote
+```
+
+## Usar pelo celular
 
 O que dá para fazer:
 - **Sessões (home):** no topo, um quadro com CPU, memória e os limites do plano do Claude (janela de 5 h e semana, com horário de reset). Abaixo, as conversas, nesta ordem: as que precisam de você, as fixadas, as abertas agora e as recentes. A aba mostra um contador das que precisam de você.
@@ -48,31 +154,17 @@ No campo de mensagem, tanto no chat quanto em "Nova sessão":
 - O estado real das sessões do PC vem de `claude agents --json`.
 - Não há tela de login: o servidor escuta só em `127.0.0.1`, e o acesso remoto passa pelo `tailscale serve` com a identidade do dono.
 
-## Serviço (início automático)
-
-O backend roda como serviço systemd de usuário e sobe no boot (o *linger* do usuário já está ativo). O serviço inicia pelo zsh interativo para herdar o ambiente do `~/.zshrc` (PATH, JAVA_HOME, ANDROID_HOME…). Assim, as sessões abertas pelo celular enxergam as mesmas ferramentas do terminal.
+## Operação do serviço
 
 ```sh
-# instalação (já feita)
-systemctl --user link ~/Projects/claude.remote/deploy/claude-remote.service
-systemctl --user enable --now claude-remote
-
 systemctl --user status claude-remote
-systemctl --user restart claude-remote     # após mudar o código
+systemctl --user restart claude-remote     # após mudar o código do servidor
 journalctl --user -u claude-remote -f      # logs
+tailscale serve status                     # acesso remoto
+tailscale serve --https=443 off            # desligar o acesso remoto
 ```
 
 Se cair, o serviço volta sozinho em ~3 s. As sessões que estavam abertas no painel aparecem como paradas e podem ser retomadas pelo ID.
-
-Variáveis opcionais: `PORT`, `PROJECT_ROOTS` (padrão `~/Projects`, separadas por `:`), `EXTRA_ORIGINS`, `ALLOWED_LOGINS`.
-
-O acesso remoto está ligado e persiste entre reinícios:
-
-```sh
-tailscale serve status              # ver
-tailscale serve --bg 7337           # ligar
-tailscale serve --https=443 off     # desligar
-```
 
 ## Desenvolvimento
 
