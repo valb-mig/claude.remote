@@ -7,6 +7,7 @@ import type {
   GitStatus,
   LoggedEvent,
   ModelOption,
+  PushPrefs,
   RunOptions,
   TreeEntry,
 } from './types'
@@ -77,6 +78,11 @@ export const api = {
     post(`${sid(id)}/approvals/${requestId}`, body),
   answer: (id: string, requestId: string, body: { answers?: Record<string, string>; decline?: boolean }) =>
     post(`${sid(id)}/questions/${requestId}`, body),
+
+  pushKey: () => request<{ publicKey: string }>('GET', '/api/push/key'),
+  pushSubscribe: (subscription: PushSubscriptionJSON, prefs: PushPrefs) => post('/api/push/subscribe', { subscription, prefs }),
+  pushUnsubscribe: (endpoint: string) => post('/api/push/unsubscribe', { endpoint }),
+  pushTest: (endpoint: string) => post('/api/push/test', { endpoint }),
 }
 
 /** Mensagens legíveis para os códigos de erro do backend. */
@@ -105,6 +111,10 @@ export function errorMessage(err: unknown): string {
       return 'A sessão não está mais aberta no painel.'
     case 'session_not_found':
       return 'A conversa não existe mais.'
+    case 'subscription_not_found':
+      return 'O PC não conhece este aparelho. Desative e ative as notificações de novo.'
+    case 'push_failed':
+      return `O serviço de push recusou o aviso${err.details.status ? ` (HTTP ${String(err.details.status)})` : ''}.`
     default:
       return err.code
   }

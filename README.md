@@ -8,7 +8,7 @@ Estado atual: backend e frontend funcionando; o PWA é React + Vite + shadcn/ui.
 
 ## Instalar na sua máquina
 
-O PC fica ligado com o servidor rodando como serviço, e o celular acessa pela sua rede Tailscale. Não há nuvem no meio nem senha: só aparelhos da sua tailnet chegam ao painel.
+O PC fica ligado com o servidor rodando como serviço, e o celular acessa pela sua rede Tailscale. Não há nuvem no meio nem senha: só aparelhos da sua tailnet chegam ao painel. A exceção são as notificações, que passam criptografadas pelo serviço de push do Google (ou da Apple, no iPhone).
 
 ### Requisitos
 
@@ -69,8 +69,9 @@ A configuração do `--bg` sobrevive a reinícios. O servidor só escuta em `127
 
 1. Com o Tailscale ligado no celular, abra no Chrome o endereço do passo 4.
 2. No menu ⋮, toque em **Instalar app** (ou **Adicionar à tela inicial**). No iPhone, pelo Safari: **Compartilhar → Adicionar à Tela de Início**.
+3. Abra o app instalado e, na aba **Computador**, toque em **Ativar notificações** e permita. Toque em **Enviar teste** para conferir.
 
-O painel passa a abrir como um app.
+O painel passa a abrir como um app e avisa quando o Claude precisa de você.
 
 ### Quem pode acessar
 
@@ -101,6 +102,7 @@ Environment=PROJECT_ROOTS=%h/Projects:%h/code
 - **Erro `host_not_allowed`:** acesse pelo nome `https://….ts.net`, não pelo IP.
 - **Pelo celular, o Claude não acha ferramentas que existem no terminal:** o serviço não carregou o seu shell. Revise o `ExecStart` (passo 3).
 - **Logo depois de ligar o PC, só o acesso local funciona:** o serviço pode subir antes do Tailscale; ele tenta de novo a cada 15 s.
+- **As notificações não chegam:** use **Enviar teste** na aba Computador. Se aparecer erro, ele vem do serviço de push; se não der erro e nada chegar, libere as notificações do app e tire o Chrome da otimização de bateria nas configurações do Android. Falhas de envio aparecem nos logs como `falha ao enviar notificação`.
 - **Qualquer outra coisa:** `journalctl --user -u claude-remote -f` mostra os logs.
 
 ### Atualizar
@@ -119,7 +121,14 @@ O que dá para fazer:
 - **Sessões (home):** no topo, um quadro com CPU, memória e os limites do plano do Claude (janela de 5 h e semana, com horário de reset). Abaixo, as conversas, nesta ordem: as que precisam de você, as fixadas, as abertas agora e as recentes. A aba mostra um contador das que precisam de você.
 - **Nova** (na home) pergunta só onde trabalhar, sem projeto (`~`) ou um projeto, e abre um chat vazio. A primeira mensagem, digitada na própria caixa do chat com modelo, modo, `/`, `@` e anexos, cria a sessão.
 - **Projetos:** escolher um diretório do PC para iniciar uma sessão nova.
-- **Computador:** detalhes do sistema (carga, swap, processos do Claude e memória deles, tempo ligado), todas as janelas de uso, inclusive por modelo, a conexão e o tema.
+- **Computador:** detalhes do sistema (carga, swap, processos do Claude e memória deles, tempo ligado), todas as janelas de uso, inclusive por modelo, a conexão, as notificações e o tema.
+
+Notificações, mesmo com o app fechado, depois de ativadas na aba Computador:
+- **Sempre:** quando o Claude faz uma pergunta (com as opções), pede aprovação (com o comando ou o arquivo) ou a sessão cai.
+- **Quando terminar** (opcional): com o começo da última resposta do Claude.
+- **Sessões abertas no PC** (opcional): quando uma sessão do terminal ou do VSCode passa a esperar você, ou termina algo que levou mais de 1 min.
+- Cada conversa tem uma notificação só, e a mais nova substitui a anterior. Tocar abre a conversa; abrir a conversa limpa o aviso; a conversa que já está na tela não avisa.
+- O aviso chega mesmo com o Tailscale desligado no celular, mas abrir a conversa precisa dele. No Android, vale ligar a **VPN sempre ativa** do Tailscale.
 
 No chat:
 - O menu ⋮ tem **Fixar no topo**, **Renomear**, **Resumo da sessão** e **Apagar conversa**. O título é gravado no próprio Claude Code, então aparece também no `/resume` do terminal e no VSCode. Apagar remove o histórico de vez e é recusado se a conversa estiver aberta no PC.
@@ -180,6 +189,7 @@ O serviço lê o frontend de `web/dist` a cada requisição, então um `pnpm bui
 Estrutura do frontend (`web/src`):
 - `lib/store.ts`: WebSocket com reconexão automática e retomada pelo último `seq`.
 - `lib/outbox.ts`: fila das mensagens ainda não entregues, guardada no IndexedDB e enviada quando a conexão volta.
+- `lib/push.ts` e `sw.ts`: inscrição nas notificações e o service worker que as mostra (e guarda o app em cache).
 - `lib/api.ts`: cliente REST.
 - `pages/`: telas (sessões, projetos, nova sessão, computador, chat).
 - `components/chat/`: blocos de atividade, cartões de aprovação e de pergunta, campo de mensagem e resumo.
@@ -225,4 +235,8 @@ node scripts/poc-client.ts release <id>          # devolver ao terminal
 | POST | `/api/sessions/:id/interrupt` | Interromper o turno |
 | POST | `/api/sessions/:id/approvals/:requestId` | Aprovar ou negar ferramenta: `{allow, message?, always?}` |
 | POST | `/api/sessions/:id/questions/:requestId` | Responder pergunta do Claude: `{answers: {"<pergunta>": "<opção>"}}` ou `{decline: true}` |
+| GET | `/api/push/key` | Chave pública VAPID do PC, para o celular se inscrever |
+| POST | `/api/push/subscribe` | `{subscription, prefs: {done, pc}}`: inscreve o aparelho ou muda as preferências (guardado em `~/.local/state/claude-remote/push.json`) |
+| POST | `/api/push/unsubscribe` | `{endpoint}`: remove o aparelho |
+| POST | `/api/push/test` | `{endpoint}`: manda um aviso de teste a esse aparelho |
 | WS | `/ws` | `subscribe {sessionId, sinceSeq}` → `snapshot`, `event`, `delta`, `catalog` |

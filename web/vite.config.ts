@@ -11,6 +11,10 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
+      // Service worker próprio (src/sw.ts): cache do app e notificações.
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
       registerType: 'autoUpdate',
       includeAssets: ['favicon.png', 'apple-touch-icon.png'],
       manifest: {
@@ -30,10 +34,7 @@ export default defineConfig({
           { src: 'maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
-      workbox: {
-        // Só o app shell vai para o cache; API e WebSocket sempre direto no PC.
-        navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/api\//, /^\/ws/],
+      injectManifest: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
       },
     }),

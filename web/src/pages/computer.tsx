@@ -3,6 +3,7 @@ import { useTheme } from 'next-themes'
 import { useEffect, useMemo, useState } from 'react'
 import { PageHeader } from '@/components/layout'
 import { Meter, WindowMeter } from '@/components/pc-status'
+import { PushSettings } from '@/components/push-settings'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -161,6 +162,8 @@ export function ComputerPage() {
             <Row label="Conversas salvas" value={counts.saved} />
           </CardContent>
         </Card>
+
+        <PushSettings />
 
         <Card size="sm">
           <CardHeader>

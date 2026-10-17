@@ -49,6 +49,7 @@ import { api, errorMessage } from '@/lib/api'
 import { projectName } from '@/lib/format'
 import { useGitStatus, useHome } from '@/lib/hooks'
 import { enqueue, useOutbox } from '@/lib/outbox'
+import { clearNotifications } from '@/lib/push'
 import { selectView, subscribe, unsubscribe, useStore } from '@/lib/store'
 import type { ContextUsage, LoggedEvent, RunOptions } from '@/lib/types'
 
@@ -129,6 +130,14 @@ export function ChatPage({ id }: { id: string }) {
   useEffect(() => {
     subscribe(id)
     return () => unsubscribe(id)
+  }, [id])
+
+  // Conversa na tela: os avisos dela na barra de notificações já foram vistos.
+  useEffect(() => {
+    const clear = () => document.visibilityState === 'visible' && void clearNotifications(id).catch(() => {})
+    clear()
+    document.addEventListener('visibilitychange', clear)
+    return () => document.removeEventListener('visibilitychange', clear)
   }, [id])
 
   useEffect(() => {

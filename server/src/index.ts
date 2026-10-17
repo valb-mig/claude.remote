@@ -15,6 +15,8 @@ import { accessGuard, loadAccessPolicy, refreshTailnet } from './guard.ts';
 import { LiveRegistry } from './live.ts';
 import { Manager } from './manager.ts';
 import { MetaStore } from './meta.ts';
+import { Notifier } from './notifier.ts';
+import { PushService, type PushPrefs, type PushSubscriptionInput } from './push.ts';
 import { SystemMonitor } from './system.ts';
 
 await mkdir(UPLOADS_DIR, { recursive: true });
@@ -25,6 +27,10 @@ const manager = new Manager(live, meta);
 const monitor = new SystemMonitor(() => manager.planUsage());
 monitor.on('error', (err) => app.log.warn({ err }, 'falha ao amostrar o sistema'));
 const policy = await loadAccessPolicy();
+const push = new PushService();
+await push.load();
+push.on('error', (err) => app.log.warn({ err }, 'falha ao enviar notificação'));
+new Notifier(manager, live, push);
 
 const app = Fastify({ logger: { level: 'info' }, logController: new LogController({ disableRequestLogging: true }) });
 await app.register(websocket);
@@ -270,6 +276,65 @@ app.post<{ Params: IdParams & { requestId: string }; Body: { answers?: Record<st
     return { ok: true };
   },
 );
+
+// ---- notificações (Web Push) ----
+
+const endpointSchema = { type: 'string', pattern: '^https://', maxLength: 2048 } as const;
+
+app.get('/api/push/key', async () => ({ publicKey: push.publicKey }));
+
+app.post<{ Body: { subscription: PushSubscriptionInput; prefs: PushPrefs } }>(
+  '/api/push/subscribe',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['subscription', 'prefs'],
+        properties: {
+          subscription: {
+            type: 'object',
+            required: ['endpoint', 'keys'],
+            properties: {
+              endpoint: endpointSchema,
+              keys: {
+                type: 'object',
+                required: ['p256dh', 'auth'],
+                properties: { p256dh: { type: 'string', maxLength: 256 }, auth: { type: 'string', maxLength: 256 } },
+              },
+            },
+          },
+          prefs: {
+            type: 'object',
+            required: ['done', 'pc'],
+            properties: { done: { type: 'boolean' }, pc: { type: 'boolean' } },
+          },
+        },
+      },
+    },
+  },
+  async (req) => {
+    const { endpoint, keys } = req.body.subscription;
+    await push.subscribe({ endpoint, keys: { p256dh: keys.p256dh, auth: keys.auth } }, {
+      done: req.body.prefs.done,
+      pc: req.body.prefs.pc,
+    });
+    return { ok: true };
+  },
+);
+
+const endpointBody = {
+  schema: { body: { type: 'object', required: ['endpoint'], properties: { endpoint: endpointSchema } } },
+};
+
+app.post<{ Body: { endpoint: string } }>('/api/push/unsubscribe', endpointBody, async (req) => {
+  await push.unsubscribe(req.body.endpoint);
+  return { ok: true };
+});
+
+app.post<{ Body: { endpoint: string } }>('/api/push/test', endpointBody, async (req) => {
+  await push.test(req.body.endpoint);
+  return { ok: true };
+});
 
 // ---- WebSocket: catálogo e eventos em tempo real ----
 
