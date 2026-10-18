@@ -8,7 +8,7 @@
 
 Painel pessoal para controlar pelo celular as sessões do Claude Code que rodam no PC. O PC executa tudo; o celular é o controle remoto, acessado pela rede Tailscale.
 
-Estado atual: backend e frontend funcionando; o PWA é React + Vite + shadcn/ui. O histórico técnico está em [docs/investigacao-tecnica.md](docs/investigacao-tecnica.md).
+Estado atual: backend e frontend funcionando; o PWA é React + Vite + shadcn/ui.
 
 ## Instalar na sua máquina
 
