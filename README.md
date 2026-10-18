@@ -1,6 +1,10 @@
+<div align="center">
+
 <img src="web/public/pwa-192.png" width="96" alt="Logo: notebook com terminal e celular ligados por sinal">
 
 # claude.remote
+
+</div>
 
 Painel pessoal para controlar pelo celular as sessões do Claude Code que rodam no PC. O PC executa tudo; o celular é o controle remoto, acessado pela rede Tailscale.
 
