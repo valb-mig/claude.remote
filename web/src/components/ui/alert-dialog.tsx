@@ -1,13 +1,19 @@
 import * as React from "react"
 import { cn } from "cn"
 import { AlertDialog as AlertDialogPrimitive } from "radix-ui"
+import { useBackClosable } from "@/lib/back-close"
 
 import { Button } from "@/components/ui/button"
 
+// Voltar do celular fecha em vez de sair da tela.
 function AlertDialog({
+  open,
+  defaultOpen,
+  onOpenChange,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Root>) {
-  return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />
+  const state = useBackClosable({ open, defaultOpen, onOpenChange })
+  return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} {...state} />
 }
 
 function AlertDialogTrigger({

@@ -1,14 +1,20 @@
 import * as React from "react"
 import { cn } from "cn"
 import { Dialog as DialogPrimitive } from "radix-ui"
+import { useBackClosable } from "@/lib/back-close"
 
 import { Button } from "@/components/ui/button"
 import { XIcon } from "lucide-react"
 
+// Voltar do celular fecha em vez de sair da tela.
 function Dialog({
+  open,
+  defaultOpen,
+  onOpenChange,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Root>) {
-  return <DialogPrimitive.Root data-slot="dialog" {...props} />
+  const state = useBackClosable({ open, defaultOpen, onOpenChange })
+  return <DialogPrimitive.Root data-slot="dialog" {...props} {...state} />
 }
 
 function DialogTrigger({
