@@ -27,6 +27,7 @@ import { Markdown } from '@/components/markdown'
 import { imageUrl } from '@/lib/api'
 import { shortPath, toolSummary } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { useGallery } from './gallery'
 import type { ActivityEntry } from './items'
 
 const ICONS: Record<string, LucideIcon> = {
@@ -128,6 +129,7 @@ function ToolRow({ sessionId, use, result }: Pick<ToolEntry, 'use' | 'result'> &
   const pending = !result
   const failed = result?.isError
   const name = use.name.startsWith('mcp__') ? use.name.split('__').slice(1).join(' · ') : use.name
+  const { claude } = useGallery()
   return (
     <Collapsible>
       <CollapsibleTrigger className="group flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/60">
@@ -144,7 +146,7 @@ function ToolRow({ sessionId, use, result }: Pick<ToolEntry, 'use' | 'result'> &
       {result?.images && result.images.length > 0 && (
         <div className="flex gap-1.5 overflow-x-auto px-2 pb-1.5">
           {result.images.map((key) => (
-            <ImageThumb key={key} src={imageUrl(sessionId, key)} className="h-24 max-w-44" />
+            <ImageThumb key={key} src={imageUrl(sessionId, key)} gallery={claude} from="Claude" className="h-24 max-w-44" />
           ))}
         </div>
       )}

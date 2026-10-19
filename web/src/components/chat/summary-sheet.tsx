@@ -59,17 +59,18 @@ function Section({ title, count, className, children }: { title: string; count: 
   )
 }
 
-/** Grade de miniaturas; tocar abre a imagem em tela cheia, como no chat. */
-function MediaGroup({ sessionId, title, keys }: { sessionId: string; title: string; keys: string[] }) {
+/** Grade de miniaturas; tocar abre a imagem em tela cheia, passando de lado pelas outras do grupo. */
+function MediaGroup({ sessionId, title, from, keys }: { sessionId: string; title: string; from: string; keys: string[] }) {
   if (keys.length === 0) return null
+  const gallery = keys.map((key) => imageUrl(sessionId, key))
   return (
     <li className="space-y-1.5">
       <p className="text-xs text-muted-foreground">
         {title} ({keys.length})
       </p>
       <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-6">
-        {keys.map((key) => (
-          <ImageThumb key={key} src={imageUrl(sessionId, key)} className="aspect-square w-full" />
+        {gallery.map((src) => (
+          <ImageThumb key={src} src={src} gallery={gallery} from={from} className="aspect-square w-full" />
         ))}
       </div>
     </li>
@@ -106,8 +107,8 @@ export function SummarySheet({
         </SheetHeader>
         <div className="space-y-6 px-4 pb-6">
           <Section title="Mídia" count={s.media.mine.length + s.media.claude.length} className="space-y-3">
-            <MediaGroup sessionId={sessionId} title="Enviadas por você" keys={s.media.mine} />
-            <MediaGroup sessionId={sessionId} title="Do Claude" keys={s.media.claude} />
+            <MediaGroup sessionId={sessionId} title="Enviadas por você" from="Você" keys={s.media.mine} />
+            <MediaGroup sessionId={sessionId} title="Do Claude" from="Claude" keys={s.media.claude} />
           </Section>
           <Section title="Arquivos alterados" count={s.files.length}>
             {s.files.map((f) => {

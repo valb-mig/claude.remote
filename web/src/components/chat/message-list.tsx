@@ -1,4 +1,5 @@
 import { CircleAlert, Clock, FileText, Folder, Info, Loader2 } from 'lucide-react'
+import { useMemo } from 'react'
 import { ImageThumb } from '@/components/image-viewer'
 import { Markdown } from '@/components/markdown'
 import { imageUrl } from '@/lib/api'
@@ -8,6 +9,7 @@ import { useStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { Activity } from './activity'
 import { ApprovalCard } from './approval-card'
+import { GalleryContext, galleryOf, useGallery } from './gallery'
 import type { Item } from './items'
 import { QuestionCard } from './question-card'
 
@@ -54,12 +56,13 @@ function withMentions(text: string): React.ReactNode[] {
 
 /** `files`: anexos que ainda não viraram @caminho no PC (mensagem na fila). */
 function UserBubble({ sessionId, text, images, files }: { sessionId: string; text: string; images?: string[]; files?: string[] }) {
+  const { mine } = useGallery()
   return (
     <div className="flex flex-col items-end gap-1.5">
       {images && images.length > 0 && (
         <div className="flex max-w-[85%] flex-wrap justify-end gap-1.5">
           {images.map((key) => (
-            <ImageThumb key={key} src={imageUrl(sessionId, key)} className="h-28 max-w-40" />
+            <ImageThumb key={key} src={imageUrl(sessionId, key)} gallery={mine} from="Você" className="h-28 max-w-40" />
           ))}
         </div>
       )}
@@ -168,21 +171,25 @@ export function MessageList({
   streaming: string
   working: boolean
 }) {
+  const gallery = useMemo(() => galleryOf(items, sessionId), [items, sessionId])
   return (
-    <div className="space-y-4 px-4 py-4">
-      {items.map((item) => (
-        <ItemView key={item.key} item={item} sessionId={sessionId} actionable={actionable} />
-      ))}
-      {queued.map((item) => (
-        <QueuedBubble key={item.id} item={item} sessionId={sessionId} />
-      ))}
-      {streaming && <Markdown text={streaming} className="opacity-90" />}
-      {working && !streaming && (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Loader2 className="size-3.5 animate-spin" />
-          Trabalhando…
-        </div>
-      )}
-    </div>
+    // Tocar numa imagem abre a tela cheia passando pelas outras do mesmo lado da conversa.
+    <GalleryContext value={gallery}>
+      <div className="space-y-4 px-4 py-4">
+        {items.map((item) => (
+          <ItemView key={item.key} item={item} sessionId={sessionId} actionable={actionable} />
+        ))}
+        {queued.map((item) => (
+          <QueuedBubble key={item.id} item={item} sessionId={sessionId} />
+        ))}
+        {streaming && <Markdown text={streaming} className="opacity-90" />}
+        {working && !streaming && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="size-3.5 animate-spin" />
+            Trabalhando…
+          </div>
+        )}
+      </div>
+    </GalleryContext>
   )
 }
