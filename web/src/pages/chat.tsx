@@ -361,7 +361,7 @@ export function ChatPage({ id }: { id: string }) {
         />
       )}
 
-      <SummarySheet events={events} cwd={entry?.cwd} open={summaryOpen} onOpenChange={setSummaryOpen} />
+      <SummarySheet sessionId={id} events={events} cwd={entry?.cwd} open={summaryOpen} onOpenChange={setSummaryOpen} />
 
       <Dialog open={renaming !== null} onOpenChange={(o) => !o && setRenaming(null)}>
         <DialogContent>
