@@ -1,8 +1,9 @@
-import { ArrowUp, Slash, Square } from 'lucide-react'
+import { ArrowUp, Mic, Slash, Square } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { errorMessage } from '@/lib/api'
 import { toPayload, type Attachment } from '@/lib/attachments'
+import { dictationSupported, spliceSpoken, useDictation } from '@/lib/dictation'
 import type { AttachmentPayload, ContextUsage, RunOptions, SessionSettings } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { AttachmentTray, useAttachments } from './attachment-tray'
@@ -49,6 +50,31 @@ export function Composer({
   const fileInput = useRef<HTMLInputElement>(null)
   const models = useModels()
 
+  // Ditado: o que é ouvido entra onde estava o cursor e vai sendo corrigido enquanto se fala.
+  const spot = useRef<{ before: string; after: string } | null>(null)
+  const dictation = useDictation({
+    onText: (spoken) => {
+      const at = spot.current
+      if (at) setText(spliceSpoken(at.before, spoken, at.after))
+    },
+    onEnd: () => (spot.current = null),
+    onError: (message) => toast.error(message),
+  })
+
+  function dictate() {
+    if (!dictation.listening) {
+      const [start, end] = input.current?.selection() ?? [text.length, text.length]
+      spot.current = { before: text.slice(0, start), after: text.slice(end) }
+    }
+    dictation.toggle()
+  }
+
+  // Digitar ou enviar durante o ditado desliga o microfone e fica com o texto como está.
+  function stopDictation() {
+    spot.current = null
+    dictation.cancel()
+  }
+
   useEffect(() => {
     drafts.set(sessionId, { text, attachments: files.items })
   }, [sessionId, text, files.items])
@@ -61,6 +87,7 @@ export function Composer({
 
   async function submit() {
     if (empty || sending || files.reading) return
+    stopDictation()
     setSending(true)
     try {
       await onSend(text.trim(), toPayload(files.items))
@@ -100,12 +127,15 @@ export function Composer({
           handleRef={input}
           cwd={cwd}
           value={text}
-          onChange={setText}
+          onChange={(value) => {
+            stopDictation()
+            setText(value)
+          }}
           onPasteFiles={files.add}
           onSubmitShortcut={submit}
           anchored={false}
           rows={1}
-          placeholder={working ? 'Enfileirar outra mensagem…' : 'Peça algo ao Claude…'}
+          placeholder={dictation.listening ? 'Pode falar…' : working ? 'Enfileirar outra mensagem…' : 'Peça algo ao Claude…'}
           className="max-h-48 min-h-11 resize-none rounded-none border-0 bg-transparent px-3.5 py-2.5 text-base shadow-none focus-visible:border-0 focus-visible:ring-0 md:text-sm dark:bg-transparent"
         />
         <div className="flex items-center gap-0.5 px-1.5 pb-1.5">
@@ -122,6 +152,17 @@ export function Composer({
           <ModelPill models={models} settings={settings} onChange={(patch) => void guard(() => onChangeSettings(patch))} />
           <div className="flex-1" />
           <ModeMenu settings={settings} efforts={efforts} onChange={(patch) => void guard(() => onChangeSettings(patch))} />
+          {dictationSupported && (
+            <button
+              type="button"
+              onClick={dictate}
+              className={cn(footerButton, 'px-0', dictation.listening && 'bg-red-500/15 text-red-500 hover:bg-red-500/15 hover:text-red-500')}
+              aria-label={dictation.listening ? 'Parar ditado' : 'Ditar'}
+              aria-pressed={dictation.listening}
+            >
+              <Mic className={cn('size-4', dictation.listening && 'animate-pulse')} />
+            </button>
+          )}
           {showStop ? (
             <button
               type="button"
