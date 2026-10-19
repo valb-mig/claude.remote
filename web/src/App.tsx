@@ -4,6 +4,7 @@ import { BottomNav, ConnectionBanner } from '@/components/layout'
 import { startOutbox } from '@/lib/outbox'
 import { syncPush } from '@/lib/push'
 import { connect } from '@/lib/store'
+import { watchUpdates } from '@/lib/update'
 import { ChatPage } from '@/pages/chat'
 import { ComputerPage } from '@/pages/computer'
 import { NewChatPage } from '@/pages/new-chat'
@@ -16,6 +17,7 @@ export default function App() {
   useEffect(() => {
     connect()
     startOutbox()
+    watchUpdates()
     void syncPush().catch(() => {})
   }, [])
 
