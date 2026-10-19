@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 import { AttachmentTray, useAttachments } from './attachment-tray'
 import { AddMenu, ContextRing, MODE_TONE, ModeMenu, ModelPill, findModel, footerButton, useModels } from './composer-controls'
 import { PromptInput, type PromptInputHandle } from './prompt-input'
+import { VoiceWave } from './voice-wave'
 
 // Rascunho por sessão: alternar entre chats não perde o que já foi digitado ou anexado.
 const drafts = new Map<string, { text: string; attachments: Attachment[] }>()
@@ -139,19 +140,26 @@ export function Composer({
           className="max-h-48 min-h-11 resize-none rounded-none border-0 bg-transparent px-3.5 py-2.5 text-base shadow-none focus-visible:border-0 focus-visible:ring-0 md:text-sm dark:bg-transparent"
         />
         <div className="flex items-center gap-0.5 px-1.5 pb-1.5">
-          <AddMenu onAttach={() => fileInput.current?.click()} onMention={cwd ? () => input.current?.insert('@') : undefined} />
-          <button
-            type="button"
-            className={cn(footerButton, 'px-0')}
-            aria-label="Comandos"
-            onClick={() => (text.startsWith('/') ? input.current?.focus() : input.current?.insert('/', { atStart: true }))}
-          >
-            <Slash className="size-4" />
-          </button>
-          {context && onCompact && <ContextRing context={context} disabled={working} onCompact={() => void guard(onCompact)} />}
-          <ModelPill models={models} settings={settings} onChange={(patch) => void guard(() => onChangeSettings(patch))} />
-          <div className="flex-1" />
-          <ModeMenu settings={settings} efforts={efforts} onChange={(patch) => void guard(() => onChangeSettings(patch))} />
+          {/* Durante o ditado, as ondas da voz ocupam a linha no lugar dos controles. */}
+          {dictation.listening ? (
+            <VoiceWave activity={text} speaking={dictation.speaking} className="mx-2 h-6 min-w-0 flex-1 text-red-500" />
+          ) : (
+            <>
+              <AddMenu onAttach={() => fileInput.current?.click()} onMention={cwd ? () => input.current?.insert('@') : undefined} />
+              <button
+                type="button"
+                className={cn(footerButton, 'px-0')}
+                aria-label="Comandos"
+                onClick={() => (text.startsWith('/') ? input.current?.focus() : input.current?.insert('/', { atStart: true }))}
+              >
+                <Slash className="size-4" />
+              </button>
+              {context && onCompact && <ContextRing context={context} disabled={working} onCompact={() => void guard(onCompact)} />}
+              <ModelPill models={models} settings={settings} onChange={(patch) => void guard(() => onChangeSettings(patch))} />
+              <div className="flex-1" />
+              <ModeMenu settings={settings} efforts={efforts} onChange={(patch) => void guard(() => onChangeSettings(patch))} />
+            </>
+          )}
           {dictationSupported && (
             <button
               type="button"
