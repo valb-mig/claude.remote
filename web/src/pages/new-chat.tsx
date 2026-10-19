@@ -5,6 +5,7 @@ import { Composer } from '@/components/chat/composer'
 import { ExplorerSheet } from '@/components/explorer'
 import { GitSheet } from '@/components/git-panel'
 import { ProjectPicker } from '@/components/project-picker'
+import { RepoLink } from '@/components/repo-link'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
 import { projectName } from '@/lib/format'
@@ -43,10 +44,10 @@ export function NewChatPage() {
           <div className="text-sm font-medium">Nova conversa</div>
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
             <span className="truncate">{label}</span>
-            {git.status?.branch && <span className="shrink-0 truncate">· ⎇ {git.status.branch}</span>}
             <ChevronDown className="size-3 shrink-0" />
           </div>
         </button>
+        {cwd && git.status?.remote && <RepoLink url={git.status.remote} />}
         {cwd && git.status && (
           <Button variant="ghost" size="icon" onClick={() => (git.reload(), setGitOpen(true))} aria-label="Git">
             <GitBranch />
@@ -71,6 +72,7 @@ export function NewChatPage() {
         key={cwd ?? '~'}
         sessionId={`new:${cwd ?? '~'}`}
         cwd={cwd ?? home}
+        branch={cwd ? git.status?.branch : undefined}
         working={false}
         settings={pending}
         context={null}

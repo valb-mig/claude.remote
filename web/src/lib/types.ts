@@ -121,7 +121,15 @@ export type GitFile = {
   deletions: number | null
 }
 
-export type GitStatus = { branch: string | null; upstream: string | null; ahead: number; behind: number; files: GitFile[] }
+export type GitStatus = {
+  branch: string | null
+  upstream: string | null
+  ahead: number
+  behind: number
+  files: GitFile[]
+  /** Página do repositório no navegador (ex.: https://github.com/dono/repo). */
+  remote: string | null
+}
 
 
 /** O que este aparelho quer receber além de perguntas, aprovações e erros, que sempre avisam. */

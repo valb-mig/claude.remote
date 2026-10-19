@@ -23,6 +23,7 @@ import { MessageList } from '@/components/chat/message-list'
 import { SummarySheet } from '@/components/chat/summary-sheet'
 import { ExplorerSheet } from '@/components/explorer'
 import { GitSheet } from '@/components/git-panel'
+import { RepoLink } from '@/components/repo-link'
 import { StateBadge } from '@/components/state-badge'
 import {
   AlertDialog,
@@ -223,12 +224,12 @@ export function ChatPage({ id }: { id: string }) {
           <div className="truncate text-sm font-medium">{entry?.title ?? 'Sessão'}</div>
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <span className="min-w-0 truncate">{projectName(entry?.cwd)}</span>
-            {git.status?.branch && <span className="max-w-28 shrink truncate font-mono">⎇ {git.status.branch}</span>}
             {owner === 'pc' && <Monitor className="size-3 shrink-0" />}
             {owner === 'panel' && <Smartphone className="size-3 shrink-0" />}
             <StateBadge state={state} waitingFor={waitingFor} className="h-5 shrink-0 px-1.5 text-[10px]" />
           </div>
         </div>
+        {project && git.status?.remote && <RepoLink url={git.status.remote} />}
         {project && git.status && (
           <Button
             variant="ghost"
@@ -334,6 +335,7 @@ export function ChatPage({ id }: { id: string }) {
         <Composer
           sessionId={id}
           cwd={entry?.cwd}
+          branch={git.status?.branch}
           working={working || state === 'waiting'}
           // Logo após retomar, enquanto o primeiro evento de ajustes não chega, vale o que foi escolhido.
           settings={Object.keys(view.settings).length ? view.settings : pending}
@@ -349,6 +351,7 @@ export function ChatPage({ id }: { id: string }) {
         <Composer
           sessionId={id}
           cwd={entry?.cwd}
+          branch={git.status?.branch}
           working={false}
           hint="Enviar retoma esta conversa aqui pelo celular."
           settings={pending}

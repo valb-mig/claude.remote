@@ -1,4 +1,4 @@
-import { ArrowUp, Mic, Slash, Square } from 'lucide-react'
+import { ArrowUp, GitBranch, Mic, Slash, Square } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { errorMessage } from '@/lib/api'
@@ -23,6 +23,7 @@ export function Composer({
   cwd,
   working,
   hint,
+  branch,
   settings,
   context,
   onChangeSettings,
@@ -35,6 +36,8 @@ export function Composer({
   /** Claude trabalhando: com o campo vazio, o botão vira "parar"; com texto, a mensagem entra na fila. */
   working: boolean
   hint?: string
+  /** Branch do projeto, embaixo da caixa: ali cabe o nome inteiro, que no cabeçalho ficava cortado. */
+  branch?: string | null
   settings: SessionSettings
   context: ContextUsage | null
   onChangeSettings: (patch: RunOptions) => Promise<void> | void
@@ -207,6 +210,12 @@ export function Composer({
           }}
         />
       </div>
+      {branch && (
+        <p className="mt-1 flex items-center gap-1 px-2 font-mono text-[11px] text-muted-foreground">
+          <GitBranch className="size-3 shrink-0" />
+          <span className="truncate">{branch}</span>
+        </p>
+      )}
     </div>
   )
 }
