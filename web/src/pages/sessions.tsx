@@ -1,6 +1,6 @@
 import { Monitor, Pin, Plus, Smartphone } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Link, useLocation } from 'wouter'
+import { Link, useLocation, useRoute } from 'wouter'
 import { PageHeader } from '@/components/layout'
 import { PcStatus } from '@/components/pc-status'
 import { ProjectPicker } from '@/components/project-picker'
@@ -11,12 +11,20 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { projectName, relativeTime } from '@/lib/format'
 import { useStore } from '@/lib/store'
 import type { CatalogEntry } from '@/lib/types'
+import { cn } from '@/lib/utils'
 
 const RECENT_LIMIT = 30
 
 function SessionRow({ s }: { s: CatalogEntry }) {
+  // No PC a lista fica ao lado do chat: a conversa aberta fica marcada.
+  const [, params] = useRoute('/s/:id')
+  const open = params?.id === s.sessionId
   return (
-    <Link href={`/s/${s.sessionId}`} className="flex items-start gap-3 px-4 py-3 active:bg-muted">
+    <Link
+      href={`/s/${s.sessionId}`}
+      aria-current={open ? 'page' : undefined}
+      className={cn('flex items-start gap-3 px-4 py-3 hover:bg-muted/50 active:bg-muted', open && 'bg-muted hover:bg-muted')}
+    >
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 text-sm font-medium">
           {s.pinned && <Pin className="size-3.5 shrink-0 text-muted-foreground" aria-label="Fixada" />}

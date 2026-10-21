@@ -305,8 +305,9 @@ export function ChatPage({ id }: { id: string }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex shrink-0 items-center gap-1 border-b px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2">
-        <Button variant="ghost" size="icon" asChild aria-label="Voltar">
+      <header className="flex shrink-0 items-center gap-1 border-b px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 compact:py-1">
+        {/* No PC a lista de conversas já está ao lado. */}
+        <Button variant="ghost" size="icon" asChild aria-label="Voltar" className="lg:hidden">
           <Link href="/">
             <ArrowLeft />
           </Link>
@@ -409,7 +410,7 @@ export function ChatPage({ id }: { id: string }) {
 
       <div className="relative min-h-0 flex-1">
         <div ref={scrollRef} onScroll={onScroll} className="absolute inset-0 overflow-y-auto">
-          <div ref={contentRef}>
+          <div ref={contentRef} className="mx-auto w-full max-w-3xl">
             {history.events === null && !history.error ? (
               <div className="space-y-4 p-4">
                 <Skeleton className="ml-auto h-10 w-2/3" />

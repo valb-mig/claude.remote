@@ -1,6 +1,20 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { api } from './api'
 import type { GitStatus } from './types'
+
+const WIDE = '(min-width: 64rem)'
+
+/** Tela larga (PC, tablet deitado): a lista de conversas fica fixa ao lado. Mesmo limite do `lg:` do Tailwind. */
+export function useWide(): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      const query = matchMedia(WIDE)
+      query.addEventListener('change', onChange)
+      return () => query.removeEventListener('change', onChange)
+    },
+    () => matchMedia(WIDE).matches,
+  )
+}
 
 let homeRequest: Promise<string> | null = null
 

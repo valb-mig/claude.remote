@@ -101,7 +101,7 @@ export function SummarySheet({
   const s = useMemo(() => summarize(events), [events])
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" className="max-h-[85dvh] overflow-y-auto">
+      <SheetContent side="bottom" className="max-h-[85dvh] overflow-y-auto lg:mx-auto lg:max-w-2xl lg:rounded-t-xl lg:border-x">
         <SheetHeader>
           <SheetTitle>Resumo da sessão</SheetTitle>
           <SheetDescription>Com base nas mensagens carregadas.</SheetDescription>

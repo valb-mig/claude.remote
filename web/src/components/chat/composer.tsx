@@ -138,7 +138,7 @@ export function Composer({
   }
 
   return (
-    <div className="bg-background px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+    <div className="mx-auto w-full max-w-3xl bg-background px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] compact:pt-1 compact:pb-1">
       {hint && <p className="mb-1.5 px-2 text-xs text-muted-foreground">{hint}</p>}
       <div className={cn('relative rounded-xl border bg-card shadow-xs transition-colors', tone.focus)}>
         {files.items.length > 0 && (
@@ -230,7 +230,8 @@ export function Composer({
         />
       </div>
       {branch && (
-        <p className="mt-1 flex items-center gap-1 px-2 font-mono text-[11px] text-muted-foreground">
+        // Deitado, a altura é curta: a branch continua no ⎇ do topo.
+        <p className="mt-1 flex items-center gap-1 px-2 font-mono text-[11px] text-muted-foreground compact:hidden">
           <GitBranch className="size-3 shrink-0" />
           <span className="truncate">{branch}</span>
         </p>
