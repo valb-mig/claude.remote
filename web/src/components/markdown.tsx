@@ -1,8 +1,9 @@
 import { Check, Copy, ImageIcon } from 'lucide-react'
-import { memo, useState, type ComponentProps } from 'react'
-import ReactMarkdown, { type Components } from 'react-markdown'
+import { memo, useContext, useEffect, useRef, useState, type ComponentProps, type RefObject } from 'react'
+import ReactMarkdown, { type Components, type ExtraProps } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ImageThumb } from '@/components/image-viewer'
+import { ReadingLine } from '@/components/reading-line'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -53,20 +54,105 @@ export function CodeBlock({ code, lang }: { code: string; lang?: string }) {
   )
 }
 
+// ---- leitura em voz alta (ver lib/speech.ts): como a letra no Spotify ----
+
+type HastElement = NonNullable<ExtraProps['node']>
+type Reading = { reading: boolean; current: boolean }
+
+const BLOCKS = new Set(['p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'pre', 'table', 'blockquote'])
+
+const spans = (node: HastElement, line: number) => {
+  const p = node.position
+  return Boolean(p && p.start.line <= line && line <= p.end.line)
+}
+
+// Um bloco de dentro (o parágrafo de um item, uma sublista) tem a linha: o destaque fica com ele.
+const inner = (node: HastElement, line: number): boolean =>
+  node.children.some((c) => c.type === 'element' && ((BLOCKS.has(c.tagName) && spans(c, line)) || inner(c, line)))
+
+/** Se o bloco tem a frase sendo lida; quando passa a ter, rola a conversa até ele. */
+function useReading<T extends HTMLElement>(node?: HastElement): [RefObject<T | null>, Reading] {
+  const line = useContext(ReadingLine)
+  const ref = useRef<T>(null)
+  const current = line !== null && node !== undefined && spans(node, line) && !inner(node, line)
+  useEffect(() => {
+    if (current) ref.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [current])
+  return [ref, { reading: line !== null, current }]
+}
+
+// Texto: o bloco atual na cor normal e o resto esmaecido. Cor (e não opacidade) porque blocos se
+// aninham: o item atual de uma sublista volta à cor normal dentro de um item esmaecido.
+const tone = ({ reading, current }: Reading) =>
+  reading && cn('transition-colors duration-300', current ? 'text-foreground' : 'text-muted-foreground')
+// Código e tabela têm cores próprias: esmaecem inteiros.
+const dim = ({ reading, current }: Reading) => reading && cn('transition-opacity duration-300', !current && 'opacity-40')
+
+function Paragraph({ node, children }: ComponentProps<'p'> & ExtraProps) {
+  const [ref, r] = useReading<HTMLParagraphElement>(node)
+  return (
+    <p ref={ref} className={cn('my-2 leading-relaxed first:mt-0 last:mb-0', tone(r))}>
+      {children}
+    </p>
+  )
+}
+
+function ListItem({ node, className, ...props }: ComponentProps<'li'> & ExtraProps) {
+  const [ref, r] = useReading<HTMLLIElement>(node)
+  return <li ref={ref} className={cn(className, tone(r))} {...props} />
+}
+
+function Heading({ node, children }: ComponentProps<'h1'> & ExtraProps) {
+  const [ref, r] = useReading<HTMLHeadingElement>(node)
+  return (
+    <h3 ref={ref} className={cn('mt-4 mb-2 text-base font-semibold', tone(r))}>
+      {children}
+    </h3>
+  )
+}
+
+function Subheading({ node, children }: ComponentProps<'h3'> & ExtraProps) {
+  const [ref, r] = useReading<HTMLHeadingElement>(node)
+  return (
+    <h4 ref={ref} className={cn('mt-3 mb-1.5 font-semibold', tone(r))}>
+      {children}
+    </h4>
+  )
+}
+
+function Pre({ node, children }: ComponentProps<'pre'> & ExtraProps) {
+  const [ref, r] = useReading<HTMLDivElement>(node)
+  return (
+    <div ref={ref} className={cn(dim(r))}>
+      {children}
+    </div>
+  )
+}
+
+function Table({ node, children }: ComponentProps<'table'> & ExtraProps) {
+  const [ref, r] = useReading<HTMLDivElement>(node)
+  return (
+    <div ref={ref} className={cn('my-2 overflow-x-auto rounded-md border', dim(r))}>
+      <table className="w-full border-collapse text-xs">{children}</table>
+    </div>
+  )
+}
+
 const components: Components = {
-  pre: ({ children }) => <>{children}</>,
+  pre: Pre,
   code: ({ className, children }) => {
     const text = String(children).replace(/\n$/, '')
     const lang = /language-([\w+-]+)/.exec(className ?? '')?.[1]
     if (lang || text.includes('\n')) return <CodeBlock code={text} lang={lang} />
     return <code className="rounded bg-muted px-1 py-0.5 font-mono text-[0.85em] break-words">{children}</code>
   },
-  p: ({ children }) => <p className="my-2 leading-relaxed first:mt-0 last:mb-0">{children}</p>,
+  p: Paragraph,
+  li: ListItem,
   ul: ({ children }) => <ul className="my-2 list-disc space-y-1 pl-5">{children}</ul>,
   ol: ({ children }) => <ol className="my-2 list-decimal space-y-1 pl-5">{children}</ol>,
-  h1: ({ children }) => <h3 className="mt-4 mb-2 text-base font-semibold">{children}</h3>,
-  h2: ({ children }) => <h3 className="mt-4 mb-2 text-base font-semibold">{children}</h3>,
-  h3: ({ children }) => <h4 className="mt-3 mb-1.5 font-semibold">{children}</h4>,
+  h1: Heading,
+  h2: Heading,
+  h3: Subheading,
   a: ({ children, href }) => (
     <a href={href} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2 break-all">
       {children}
@@ -85,11 +171,7 @@ const components: Components = {
       </span>
     )
   },
-  table: ({ children }) => (
-    <div className="my-2 overflow-x-auto rounded-md border">
-      <table className="w-full border-collapse text-xs">{children}</table>
-    </div>
-  ),
+  table: Table,
   th: ({ children }) => <th className="border-b bg-muted/50 px-2 py-1.5 text-left font-medium">{children}</th>,
   td: ({ children }) => <td className="border-b px-2 py-1.5 align-top">{children}</td>,
 }

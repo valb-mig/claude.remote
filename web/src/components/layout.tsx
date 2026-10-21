@@ -10,13 +10,15 @@ const TABS = [
   { href: '/computador', label: 'Computador', icon: Monitor },
 ]
 
+/** Abas embaixo da tela; no celular deitado, uma coluna na lateral para sobrar altura. */
 export function BottomNav() {
   const [location] = useLocation()
   const attention = useStore((s) => s.catalog.reduce((n, c) => n + (c.state === 'waiting' ? 1 : 0), 0))
   return (
-    <nav className="grid shrink-0 grid-cols-3 border-t bg-background pb-[env(safe-area-inset-bottom)]">
+    <nav className="grid shrink-0 grid-cols-3 border-t bg-background pb-[env(safe-area-inset-bottom)] compact:w-20 compact:grid-cols-1 compact:content-center compact:border-t-0 compact:border-r compact:pb-0">
       {TABS.map(({ href, label, icon: Icon }) => {
-        const active = href === '/' ? location === '/' : location.startsWith(href)
+        // No PC, a lista de sessões fica ao lado da conversa aberta.
+        const active = href === '/' ? location === '/' || location.startsWith('/s/') || location === '/nova' : location.startsWith(href)
         return (
           <Link
             key={href}
@@ -63,7 +65,7 @@ export function ConnectionBanner() {
 
 export function PageHeader({ title, action }: { title: string; action?: React.ReactNode }) {
   return (
-    <header className="sticky top-0 z-10 flex items-center justify-between gap-2 bg-background/95 px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 backdrop-blur">
+    <header className="sticky top-0 z-10 flex items-center justify-between gap-2 bg-background/95 px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 backdrop-blur compact:py-2">
       <h1 className="text-lg font-semibold">{title}</h1>
       {action}
     </header>

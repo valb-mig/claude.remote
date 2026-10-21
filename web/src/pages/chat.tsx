@@ -16,6 +16,8 @@ import {
   PinOff,
   Smartphone,
   Trash2,
+  Volume2,
+  VolumeOff,
 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -23,6 +25,7 @@ import { Link, useLocation } from 'wouter'
 import { Composer } from '@/components/chat/composer'
 import { buildItems, type Keyed } from '@/components/chat/items'
 import { MessageList } from '@/components/chat/message-list'
+import { SpeechPlayer } from '@/components/chat/speech-player'
 import { SummarySheet } from '@/components/chat/summary-sheet'
 import { ExplorerSheet } from '@/components/explorer'
 import { GitSheet } from '@/components/git-panel'
@@ -54,7 +57,8 @@ import { projectName } from '@/lib/format'
 import { useGitStatus, useHome } from '@/lib/hooks'
 import { enqueue, useOutbox } from '@/lib/outbox'
 import { clearNotifications } from '@/lib/push'
-import { selectView, subscribe, unsubscribe, useStore } from '@/lib/store'
+import { setAutoSpeech, speakNew, speechSupported, useSpeech } from '@/lib/speech'
+import { onLiveEvent, selectView, subscribe, unsubscribe, useStore } from '@/lib/store'
 import type { ContextUsage, LoggedEvent, RunOptions } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -102,6 +106,9 @@ function useContextUsage(id: string, enabled: boolean, turns: number): ContextUs
   }, [id, enabled, turns])
   return context
 }
+
+/** Chave de um evento ao vivo no chat; a resposta lida sozinha precisa da mesma, para o destaque. */
+const liveKey = (runId: string | undefined, seq: number) => `l${runId}-${seq}`
 
 // Preferência (o "cadeado") de acompanhar o fim da conversa; vale para todas as sessões.
 const FOLLOW_KEY = 'cr:chat-follow'
@@ -219,6 +226,16 @@ export function ChatPage({ id }: { id: string }) {
     if (rekeyed) navigate(`/s/${rekeyed}`, { replace: true })
   }, [rekeyed, navigate])
 
+  // Leitura automática (o alto-falante no topo): as respostas que chegam ao vivo, nunca o histórico.
+  const autoSpeech = useSpeech((s) => s.auto)
+  useEffect(
+    () =>
+      onLiveEvent((sessionId, runId, e) => {
+        if (sessionId === id && e.kind === 'assistant' && !e.parentToolUseId) speakNew(liveKey(runId, e.seq), e.text)
+      }),
+    [id],
+  )
+
   // O WebSocket sabe primeiro quando o processo do painel abre ou fecha; o catálogo cobre o resto.
   const panelOpen = view.open === true || (view.open === null && entry?.owner === 'panel')
   const owner = panelOpen ? 'panel' : entry?.owner === 'pc' ? 'pc' : null
@@ -231,7 +248,7 @@ export function ChatPage({ id }: { id: string }) {
   const events: Keyed[] = useMemo(
     () => [
       ...(history.events ?? []).map((e, i) => ({ ...e, key: `h${i}` })),
-      ...(panelOpen ? view.events.map((e) => ({ ...e, key: `l${view.runId}-${e.seq}` })) : []),
+      ...(panelOpen ? view.events.map((e) => ({ ...e, key: liveKey(view.runId, e.seq) })) : []),
     ],
     [history.events, panelOpen, view.events, view.runId],
   )
@@ -288,8 +305,9 @@ export function ChatPage({ id }: { id: string }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex shrink-0 items-center gap-1 border-b px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2">
-        <Button variant="ghost" size="icon" asChild aria-label="Voltar">
+      <header className="flex shrink-0 items-center gap-1 border-b px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 compact:py-1">
+        {/* No PC a lista de conversas já está ao lado. */}
+        <Button variant="ghost" size="icon" asChild aria-label="Voltar" className="lg:hidden">
           <Link href="/">
             <ArrowLeft />
           </Link>
@@ -308,6 +326,22 @@ export function ChatPage({ id }: { id: string }) {
             <StateBadge state={state} waitingFor={waitingFor} className="h-5 shrink-0 px-1.5 text-[10px]" />
           </div>
         </div>
+        {speechSupported && (
+          <Button
+            variant={autoSpeech ? 'default' : 'ghost'}
+            size="icon"
+            className={cn(autoSpeech && 'rounded-full')}
+            onClick={() => {
+              setAutoSpeech(!autoSpeech)
+              if (autoSpeech) toast('Leitura automática desligada')
+              else toast('Leitura automática ligada', { description: 'As respostas novas do Claude serão lidas em voz alta.' })
+            }}
+            aria-pressed={autoSpeech}
+            aria-label={autoSpeech ? 'Leitura automática ligada: tocar para desligar' : 'Ler as respostas novas em voz alta'}
+          >
+            {autoSpeech ? <Volume2 /> : <VolumeOff />}
+          </Button>
+        )}
         {project && git.status?.remote && <RepoLink url={git.status.remote} />}
         {project && git.status && (
           <Button
@@ -376,7 +410,7 @@ export function ChatPage({ id }: { id: string }) {
 
       <div className="relative min-h-0 flex-1">
         <div ref={scrollRef} onScroll={onScroll} className="absolute inset-0 overflow-y-auto">
-          <div ref={contentRef}>
+          <div ref={contentRef} className="mx-auto w-full max-w-3xl">
             {history.events === null && !history.error ? (
               <div className="space-y-4 p-4">
                 <Skeleton className="ml-auto h-10 w-2/3" />
@@ -429,6 +463,8 @@ export function ChatPage({ id }: { id: string }) {
           </Button>
         </div>
       </div>
+
+      <SpeechPlayer />
 
       {owner === 'pc' ? (
         <div className="shrink-0 space-y-2 border-t px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">

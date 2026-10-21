@@ -25,7 +25,8 @@ export default defineConfig({
         start_url: '/',
         scope: '/',
         display: 'standalone',
-        orientation: 'portrait',
+        // Gira com o celular: na horizontal o app usa o layout compacto (ver `compact:` no index.css).
+        orientation: 'any',
         background_color: '#0a0a0a',
         theme_color: '#0a0a0a',
         // "Compartilhar" do Android: prints, arquivos e textos de outros apps (ver SharePage e sw.ts).

@@ -44,7 +44,7 @@ export function ProjectPicker({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" className="gap-0 p-0 data-[side=bottom]:h-[85dvh]">
+      <SheetContent side="bottom" className="gap-0 p-0 data-[side=bottom]:h-[85dvh] lg:mx-auto lg:max-w-2xl lg:rounded-t-xl lg:border-x">
         <SheetHeader>
           <SheetTitle>Nova conversa</SheetTitle>
           <SheetDescription>Onde o Claude vai trabalhar?</SheetDescription>
