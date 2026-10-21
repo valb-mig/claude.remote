@@ -28,8 +28,22 @@ export type Reading = {
   progress: number
 }
 
-/** Leitura atual; uma por vez no app inteiro. */
-export const useSpeech = create<{ reading: Reading | null }>(() => ({ reading: null }))
+// Leitura automática (o alto-falante no topo do chat): vale para todas as conversas e fica salva.
+const AUTO_KEY = 'cr:speech-auto'
+
+function savedAuto(): boolean {
+  try {
+    return localStorage.getItem(AUTO_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+/** Leitura atual (uma por vez no app inteiro) e se as respostas novas são lidas sozinhas. */
+export const useSpeech = create<{ reading: Reading | null; auto: boolean }>(() => ({
+  reading: null,
+  auto: speechSupported && savedAuto(),
+}))
 
 // ---------------------------------------------------------------------------
 // Markdown → frases faladas
@@ -147,6 +161,7 @@ const ERRORS: Partial<Record<SpeechSynthesisErrorCode, string>> = {
   'voice-unavailable': 'O aparelho não tem voz em português. Instale em Configurações › Texto para fala.',
   'synthesis-unavailable': 'O aparelho não tem um motor de texto para fala ativo.',
   'audio-busy': 'O áudio está ocupado por outro app.',
+  'not-allowed': 'O navegador só deixa o app falar depois de um toque na tela. Toque em Ouvir.',
 }
 
 // Cada interrupção (pausar, pular, outra mensagem) invalida os avisos da fala anterior.
@@ -157,6 +172,8 @@ let ticker: ReturnType<typeof setInterval> | undefined
 // Velocidade da voz em caracteres por segundo, ajustada a cada frase: faz a barra andar dentro da
 // frase quando o aparelho não avisa por qual palavra está.
 let charsPerSecond = 14
+// Respostas que chegaram com outra sendo lida (leitura automática): esperam a vez, na ordem.
+let queue: { key: string; markdown: string }[] = []
 
 const patch = (change: Partial<Reading>) =>
   useSpeech.setState((s) => (s.reading ? { reading: { ...s.reading, ...change } } : s))
@@ -188,6 +205,8 @@ function speakFrom(index: number, gen: number): void {
   if (index >= reading.units.length) {
     current = null
     useSpeech.setState({ reading: null })
+    const next = queue.shift()
+    if (next) start(next.key, next.markdown)
     return
   }
   const { text } = reading.units[index]
@@ -236,7 +255,21 @@ function playFrom(index: number): void {
   else speakFrom(index, gen)
 }
 
-/** Ouvir, pausar ou continuar a mensagem `key`; outra mensagem que estiver tocando é interrompida. */
+function start(key: string, markdown: string): void {
+  const units = speechUnits(markdown)
+  if (!units.length) {
+    const next = queue.shift()
+    if (next) start(next.key, next.markdown)
+    return
+  }
+  useSpeech.setState({ reading: { key, units, index: 0, playing: true, progress: 0 } })
+  playFrom(0)
+}
+
+/**
+ * Ouvir, pausar ou continuar a mensagem `key`. Outra mensagem que estiver tocando é interrompida,
+ * e as respostas na fila da leitura automática são descartadas: quem escolheu foi a pessoa.
+ */
 export function toggleSpeech(key: string, markdown: string): void {
   if (!synth) return
   const reading = useSpeech.getState().reading
@@ -245,10 +278,26 @@ export function toggleSpeech(key: string, markdown: string): void {
     else playFrom(reading.index)
     return
   }
-  const units = speechUnits(markdown)
-  if (!units.length) return
-  useSpeech.setState({ reading: { key, units, index: 0, playing: true, progress: 0 } })
-  playFrom(0)
+  queue = []
+  start(key, markdown)
+}
+
+/** Leitura automática: lê a resposta que acabou de chegar; com outra tocando ou pausada, entra na fila. */
+export function speakNew(key: string, markdown: string): void {
+  if (!synth || !useSpeech.getState().auto) return
+  if (useSpeech.getState().reading) queue.push({ key, markdown })
+  else start(key, markdown)
+}
+
+/** Liga ou desliga a leitura automática; desligar também cala o que estiver tocando. */
+export function setAutoSpeech(on: boolean): void {
+  try {
+    localStorage.setItem(AUTO_KEY, on ? '1' : '0')
+  } catch {
+    // localStorage indisponível (modo privado): segue só em memória.
+  }
+  useSpeech.setState({ auto: on })
+  if (!on) stopSpeaking()
 }
 
 /** Pausa no começo da frase atual; continuar repete a frase desde o início. */
@@ -279,6 +328,7 @@ export function seekSpeech(fraction: number): void {
 }
 
 export function stopSpeaking(): void {
+  queue = []
   silence()
   useSpeech.setState({ reading: null })
 }

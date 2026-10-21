@@ -16,6 +16,8 @@ import {
   PinOff,
   Smartphone,
   Trash2,
+  Volume2,
+  VolumeOff,
 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -55,7 +57,8 @@ import { projectName } from '@/lib/format'
 import { useGitStatus, useHome } from '@/lib/hooks'
 import { enqueue, useOutbox } from '@/lib/outbox'
 import { clearNotifications } from '@/lib/push'
-import { selectView, subscribe, unsubscribe, useStore } from '@/lib/store'
+import { setAutoSpeech, speakNew, speechSupported, useSpeech } from '@/lib/speech'
+import { onLiveEvent, selectView, subscribe, unsubscribe, useStore } from '@/lib/store'
 import type { ContextUsage, LoggedEvent, RunOptions } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -103,6 +106,9 @@ function useContextUsage(id: string, enabled: boolean, turns: number): ContextUs
   }, [id, enabled, turns])
   return context
 }
+
+/** Chave de um evento ao vivo no chat; a resposta lida sozinha precisa da mesma, para o destaque. */
+const liveKey = (runId: string | undefined, seq: number) => `l${runId}-${seq}`
 
 // Preferência (o "cadeado") de acompanhar o fim da conversa; vale para todas as sessões.
 const FOLLOW_KEY = 'cr:chat-follow'
@@ -220,6 +226,16 @@ export function ChatPage({ id }: { id: string }) {
     if (rekeyed) navigate(`/s/${rekeyed}`, { replace: true })
   }, [rekeyed, navigate])
 
+  // Leitura automática (o alto-falante no topo): as respostas que chegam ao vivo, nunca o histórico.
+  const autoSpeech = useSpeech((s) => s.auto)
+  useEffect(
+    () =>
+      onLiveEvent((sessionId, runId, e) => {
+        if (sessionId === id && e.kind === 'assistant' && !e.parentToolUseId) speakNew(liveKey(runId, e.seq), e.text)
+      }),
+    [id],
+  )
+
   // O WebSocket sabe primeiro quando o processo do painel abre ou fecha; o catálogo cobre o resto.
   const panelOpen = view.open === true || (view.open === null && entry?.owner === 'panel')
   const owner = panelOpen ? 'panel' : entry?.owner === 'pc' ? 'pc' : null
@@ -232,7 +248,7 @@ export function ChatPage({ id }: { id: string }) {
   const events: Keyed[] = useMemo(
     () => [
       ...(history.events ?? []).map((e, i) => ({ ...e, key: `h${i}` })),
-      ...(panelOpen ? view.events.map((e) => ({ ...e, key: `l${view.runId}-${e.seq}` })) : []),
+      ...(panelOpen ? view.events.map((e) => ({ ...e, key: liveKey(view.runId, e.seq) })) : []),
     ],
     [history.events, panelOpen, view.events, view.runId],
   )
@@ -309,6 +325,22 @@ export function ChatPage({ id }: { id: string }) {
             <StateBadge state={state} waitingFor={waitingFor} className="h-5 shrink-0 px-1.5 text-[10px]" />
           </div>
         </div>
+        {speechSupported && (
+          <Button
+            variant={autoSpeech ? 'default' : 'ghost'}
+            size="icon"
+            className={cn(autoSpeech && 'rounded-full')}
+            onClick={() => {
+              setAutoSpeech(!autoSpeech)
+              if (autoSpeech) toast('Leitura automática desligada')
+              else toast('Leitura automática ligada', { description: 'As respostas novas do Claude serão lidas em voz alta.' })
+            }}
+            aria-pressed={autoSpeech}
+            aria-label={autoSpeech ? 'Leitura automática ligada: tocar para desligar' : 'Ler as respostas novas em voz alta'}
+          >
+            {autoSpeech ? <Volume2 /> : <VolumeOff />}
+          </Button>
+        )}
         {project && git.status?.remote && <RepoLink url={git.status.remote} />}
         {project && git.status && (
           <Button

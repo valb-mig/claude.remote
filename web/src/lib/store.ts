@@ -161,6 +161,17 @@ type ServerMsg =
   | { type: 'system'; system: SystemSnapshot }
   | { type: 'usage'; usage: UsageSnapshot }
 
+type LiveListener = (sessionId: string, runId: string, event: LoggedEvent) => void
+const liveListeners = new Set<LiveListener>()
+
+/** Eventos que chegam ao vivo pelo WebSocket, uma vez cada; não inclui o histórico nem o snapshot. */
+export function onLiveEvent(listener: LiveListener): () => void {
+  liveListeners.add(listener)
+  return () => {
+    liveListeners.delete(listener)
+  }
+}
+
 function handle(m: ServerMsg): void {
   lastMessageAt = Date.now()
   switch (m.type) {
@@ -193,6 +204,10 @@ function handle(m: ServerMsg): void {
     case 'event': {
       const before = useStore.getState().live[m.sessionId]
       patchView(m.sessionId, (v) => applyEvent(v, m.runId, m.event))
+      // Repetido (já veio no snapshot ou num reenvio): não é novidade.
+      if (before?.runId !== m.runId || m.event.seq > before.lastSeq) {
+        for (const listener of liveListeners) listener(m.sessionId, m.runId, m.event)
+      }
       if (before?.runId === m.runId) {
         // Buraco na sequência (mensagem perdida): pede o que falta.
         if (m.event.seq > before.lastSeq + 1) sendSubscribe(m.sessionId)
