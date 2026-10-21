@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { imageUrl, thumbUrl } from '@/lib/api'
 import { duration } from '@/lib/format'
 import { discard, retryItem, type OutboxItem } from '@/lib/outbox'
-import { speechSupported, stopSpeaking, toggleSpeech, useSpeech } from '@/lib/speech'
+import { speechSupported, stopSpeakingIn, toggleSpeech, useSpeech } from '@/lib/speech'
 import { useStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { Activity } from './activity'
@@ -156,7 +156,7 @@ function ItemView({ item, sessionId, actionable }: { item: Item; sessionId: stri
     case 'user':
       return <UserBubble sessionId={sessionId} text={item.text} images={item.images} />
     case 'assistant':
-      return <AssistantMessage id={item.key} text={item.text} />
+      return <AssistantMessage id={`${sessionId}:${item.key}`} text={item.text} />
     case 'notice':
       return (
         <div className="flex items-start gap-2 text-xs text-muted-foreground">
@@ -202,8 +202,8 @@ export function MessageList({
   working: boolean
 }) {
   const gallery = useMemo(() => galleryOf(items, sessionId), [items, sessionId])
-  // Trocar de conversa (ou sair do chat) cala a leitura da anterior.
-  useEffect(() => stopSpeaking, [sessionId])
+  // Conversa saindo da tela cala a leitura dela; a de outra conversa aberta ao lado segue.
+  useEffect(() => () => stopSpeakingIn(sessionId), [sessionId])
   return (
     // Tocar numa imagem abre a tela cheia passando pelas outras do mesmo lado da conversa.
     <GalleryContext value={gallery}>

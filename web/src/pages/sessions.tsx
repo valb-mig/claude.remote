@@ -1,14 +1,17 @@
-import { Monitor, Pin, Plus, Smartphone } from 'lucide-react'
+import { Columns2, Plus } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Link, useLocation, useRoute } from 'wouter'
+import { toast } from 'sonner'
+import { Link, useLocation } from 'wouter'
 import { PageHeader } from '@/components/layout'
 import { PcStatus } from '@/components/pc-status'
 import { ProjectPicker } from '@/components/project-picker'
-import { StateBadge } from '@/components/state-badge'
+import { SessionInfo } from '@/components/session-info'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { projectName, relativeTime } from '@/lib/format'
+import { projectName } from '@/lib/format'
+import { useWide } from '@/lib/hooks'
+import { focusChat, openBeside, useSplit } from '@/lib/split'
 import { useStore } from '@/lib/store'
 import type { CatalogEntry } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -16,36 +19,43 @@ import { cn } from '@/lib/utils'
 const RECENT_LIMIT = 30
 
 function SessionRow({ s }: { s: CatalogEntry }) {
-  // No PC a lista fica ao lado do chat: a conversa aberta fica marcada.
-  const [, params] = useRoute('/s/:id')
-  const open = params?.id === s.sessionId
+  // No PC a lista fica ao lado do chat: as conversas na tela ficam marcadas, a em foco mais forte.
+  const split = useSplit()
+  const wide = useWide()
+  const shown = split.ids.includes(s.sessionId)
+  const focused = split.focused === s.sessionId
   return (
-    <Link
-      href={`/s/${s.sessionId}`}
-      aria-current={open ? 'page' : undefined}
-      className={cn('flex items-start gap-3 px-4 py-3 hover:bg-muted/50 active:bg-muted', open && 'bg-muted hover:bg-muted')}
-    >
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5 text-sm font-medium">
-          {s.pinned && <Pin className="size-3.5 shrink-0 text-muted-foreground" aria-label="Fixada" />}
-          <span className="truncate">{s.title}</span>
-        </div>
-        <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span className="truncate">{projectName(s.cwd)}</span>
-          <span>·</span>
-          <span className="shrink-0">{relativeTime(s.lastModified)}</span>
-        </div>
-      </div>
-      <div className="flex shrink-0 flex-col items-end gap-1">
-        {s.state !== 'stopped' && <StateBadge state={s.state} waitingFor={s.waitingFor} />}
-        {s.owner && (
-          <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-            {s.owner === 'pc' ? <Monitor className="size-3" /> : <Smartphone className="size-3" />}
-            {s.owner === 'pc' ? 'no PC' : 'no painel'}
-          </span>
+    <div className="group relative">
+      <Link
+        href={split.hrefFor(s.sessionId)}
+        onClick={(e) => {
+          focusChat(s.sessionId)
+          if (shown) e.preventDefault()
+        }}
+        aria-current={focused ? 'page' : undefined}
+        className={cn(
+          'flex items-start gap-3 px-4 py-3 hover:bg-muted/50 active:bg-muted',
+          shown && 'bg-muted/50',
+          focused && 'bg-muted hover:bg-muted',
         )}
-      </div>
-    </Link>
+      >
+        <SessionInfo s={s} />
+      </Link>
+      {wide && split.ids.length > 0 && !shown && (
+        <Button
+          variant="secondary"
+          size="icon-sm"
+          onClick={() =>
+            split.canAdd ? openBeside(s.sessionId) : toast(`Cabem ${split.max} conversas lado a lado nesta tela. Feche uma para abrir outra.`)
+          }
+          aria-label="Abrir ao lado"
+          title="Abrir ao lado"
+          className="absolute top-1/2 right-3 -translate-y-1/2 border opacity-0 shadow-sm group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
+        >
+          <Columns2 />
+        </Button>
+      )}
+    </div>
   )
 }
 

@@ -18,7 +18,7 @@ export const speechSupported = Boolean(synth)
 export type Unit = { text: string; line: number }
 
 export type Reading = {
-  /** Mensagem sendo lida. */
+  /** Mensagem sendo lida: `<sessão>:<mensagem>`, porque várias conversas podem estar na tela (split). */
   key: string
   units: Unit[]
   /** Pedaço em leitura ou, pausado, de onde continua. */
@@ -331,6 +331,17 @@ export function stopSpeaking(): void {
   queue = []
   silence()
   useSpeech.setState({ reading: null })
+}
+
+/** Conversa saindo da tela: cala a leitura se for dela e tira da fila as respostas dela; as outras seguem. */
+export function stopSpeakingIn(sessionId: string): void {
+  const prefix = `${sessionId}:`
+  queue = queue.filter((q) => !q.key.startsWith(prefix))
+  if (!useSpeech.getState().reading?.key.startsWith(prefix)) return
+  silence()
+  useSpeech.setState({ reading: null })
+  const next = queue.shift()
+  if (next) start(next.key, next.markdown)
 }
 
 // Voltando ao app: se a fala parou enquanto a tela estava apagada sem avisar, mostra pausado (e

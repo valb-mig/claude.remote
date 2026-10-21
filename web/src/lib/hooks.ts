@@ -2,17 +2,29 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 import { api } from './api'
 import type { GitStatus } from './types'
 
-const WIDE = '(min-width: 64rem)'
-
-/** Tela larga (PC, tablet deitado): a lista de conversas fica fixa ao lado. Mesmo limite do `lg:` do Tailwind. */
-export function useWide(): boolean {
+/** Se a media query vale agora, acompanhando mudanças (girar o celular, redimensionar a janela). */
+export function useMediaQuery(query: string): boolean {
   return useSyncExternalStore(
     (onChange) => {
-      const query = matchMedia(WIDE)
-      query.addEventListener('change', onChange)
-      return () => query.removeEventListener('change', onChange)
+      const list = matchMedia(query)
+      list.addEventListener('change', onChange)
+      return () => list.removeEventListener('change', onChange)
     },
-    () => matchMedia(WIDE).matches,
+    () => matchMedia(query).matches,
+  )
+}
+
+/** Tela larga (PC, tablet deitado): a lista de conversas fica fixa ao lado. Mesmo limite do `lg:` do Tailwind. */
+export const useWide = () => useMediaQuery('(min-width: 64rem)')
+
+/** Largura da janela, acompanhando o redimensionamento. */
+export function useWindowWidth(): number {
+  return useSyncExternalStore(
+    (onChange) => {
+      window.addEventListener('resize', onChange)
+      return () => window.removeEventListener('resize', onChange)
+    },
+    () => window.innerWidth,
   )
 }
 
