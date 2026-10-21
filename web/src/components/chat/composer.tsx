@@ -2,17 +2,15 @@ import { ArrowUp, GitBranch, Mic, Slash, Square } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { errorMessage } from '@/lib/api'
-import { toPayload, type Attachment } from '@/lib/attachments'
+import { toPayload } from '@/lib/attachments'
 import { dictationSupported, spliceSpoken, useDictation } from '@/lib/dictation'
+import { cachedDraft, loadDraft, saveDraft } from '@/lib/drafts'
 import type { AttachmentPayload, ContextUsage, RunOptions, SessionSettings } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { AttachmentTray, useAttachments } from './attachment-tray'
 import { AddMenu, ContextRing, MODE_TONE, ModeMenu, ModelPill, findModel, footerButton, useModels } from './composer-controls'
 import { PromptInput, type PromptInputHandle } from './prompt-input'
 import { VoiceWave } from './voice-wave'
-
-// Rascunho por sessão: alternar entre chats não perde o que já foi digitado ou anexado.
-const drafts = new Map<string, { text: string; attachments: Attachment[] }>()
 
 /**
  * Caixa de mensagem no formato da extensão do VSCode: texto em cima e, na mesma caixa,
@@ -45,9 +43,13 @@ export function Composer({
   onSend: (text: string, attachments: AttachmentPayload[]) => Promise<void> | void
   onInterrupt?: () => Promise<void>
 }) {
-  const draft = drafts.get(sessionId)
+  // Rascunho por conversa: trocar de chat, recarregar a tela ou o Android fechar o app não perde o
+  // que foi digitado ou anexado. Sem ele na memória, vem do banco; até lá nada é gravado, para não
+  // apagar o salvo.
+  const draft = cachedDraft(sessionId)
   const [text, setText] = useState(draft?.text ?? '')
   const files = useAttachments(draft?.attachments)
+  const [loaded, setLoaded] = useState(Boolean(draft))
   const [sending, setSending] = useState(false)
   const [stopping, setStopping] = useState(false)
   const input = useRef<PromptInputHandle>(null)
@@ -79,9 +81,26 @@ export function Composer({
     dictation.cancel()
   }
 
+  const { replace } = files
   useEffect(() => {
-    drafts.set(sessionId, { text, attachments: files.items })
-  }, [sessionId, text, files.items])
+    if (loaded) return
+    let alive = true
+    void loadDraft(sessionId).then((saved) => {
+      if (!alive) return
+      if (saved) {
+        setText((typed) => typed || saved.text)
+        replace((current) => (current.length ? current : saved.attachments))
+      }
+      setLoaded(true)
+    })
+    return () => {
+      alive = false
+    }
+  }, [loaded, sessionId, replace])
+
+  useEffect(() => {
+    if (loaded) saveDraft(sessionId, { text, attachments: files.items })
+  }, [loaded, sessionId, text, files.items])
 
   const empty = !text.trim() && files.items.length === 0
   const showStop = working && empty && Boolean(onInterrupt)

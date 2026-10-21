@@ -29,6 +29,8 @@ export function useAttachments(initial: Attachment[] = []) {
     add,
     remove: (id: string) => setItems((current) => current.filter((a) => a.id !== id)),
     clear: () => setItems([]),
+    /** Lista inteira de uma vez (ex.: o rascunho que veio do banco); estável entre renderizações. */
+    replace: setItems,
   }
 }
 
