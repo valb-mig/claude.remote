@@ -1,10 +1,13 @@
 import {
   ArrowLeft,
+  ChevronDown,
   Copy,
   EllipsisVertical,
   GitBranch,
   GitFork,
   ListChecks,
+  Lock,
+  LockOpen,
   LogOut,
   Menu,
   Monitor,
@@ -52,6 +55,7 @@ import { enqueue, useOutbox } from '@/lib/outbox'
 import { clearNotifications } from '@/lib/push'
 import { selectView, subscribe, unsubscribe, useStore } from '@/lib/store'
 import type { ContextUsage, LoggedEvent, RunOptions } from '@/lib/types'
+import { cn } from '@/lib/utils'
 
 /**
  * Histórico salvo da conversa. Com a sessão aberta no painel, o servidor devolve só o que
@@ -98,19 +102,89 @@ function useContextUsage(id: string, enabled: boolean, turns: number): ContextUs
   return context
 }
 
-/** Mantém a lista grudada no fim enquanto o usuário não rolou para cima. */
-function useStickToBottom(deps: unknown[]) {
-  const ref = useRef<HTMLDivElement>(null)
-  const stick = useRef(true)
-  const onScroll = () => {
-    const el = ref.current
-    if (el) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120
-  }
+// Preferência (o "cadeado") de acompanhar o fim da conversa; vale para todas as sessões.
+const FOLLOW_KEY = 'cr:chat-follow'
+
+/**
+ * Mantém o feed acompanhando o fim da conversa, de forma robusta.
+ * - `follow` (o cadeado) liga/desliga o acompanhamento automático e fica salvo.
+ * - Ligado, novas mensagens, streaming, imagens e blocos que crescem grudam no fim. Se o usuário
+ *   rola para cima para ler, pausa até ele voltar ao fim (ou tocar em "descer").
+ * - `atBottom` diz se já dá para esconder o botão flutuante de "descer".
+ */
+function useAutoScroll(deps: unknown[]) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const [follow, setFollowState] = useState(() => {
+    try {
+      return localStorage.getItem(FOLLOW_KEY) !== '0'
+    } catch {
+      return true
+    }
+  })
+  const [atBottom, setAtBottom] = useState(true)
+  // Rolou para cima para ler: segura o acompanhamento até voltar ao fim.
+  const paused = useRef(false)
+
+  const nearBottom = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return true
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 120
+  }, [])
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
+    const el = scrollRef.current
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior })
+  }, [])
+
+  const onScroll = useCallback(() => {
+    const near = nearBottom()
+    paused.current = !near
+    setAtBottom(near)
+  }, [nearBottom])
+
+  // Conteúdo cresceu (markdown, imagens, atividade): gruda no fim se estiver acompanhando.
+  useEffect(() => {
+    const content = contentRef.current
+    if (!content) return
+    const observer = new ResizeObserver(() => {
+      if (follow && !paused.current) scrollToBottom()
+      setAtBottom(nearBottom())
+    })
+    observer.observe(content)
+    return () => observer.disconnect()
+  }, [follow, nearBottom, scrollToBottom])
+
+  // Novo item/turno/streaming: gruda no fim se estiver acompanhando.
   useLayoutEffect(() => {
-    const el = ref.current
-    if (el && stick.current) el.scrollTop = el.scrollHeight
+    const el = scrollRef.current
+    if (el && follow && !paused.current) el.scrollTop = el.scrollHeight
   }, deps)
-  return { ref, onScroll }
+
+  const jumpToBottom = useCallback(() => {
+    paused.current = false
+    scrollToBottom('smooth')
+    setAtBottom(true)
+  }, [scrollToBottom])
+
+  const setFollow = useCallback(
+    (next: boolean) => {
+      try {
+        localStorage.setItem(FOLLOW_KEY, next ? '1' : '0')
+      } catch {
+        // localStorage indisponível (modo privado): segue só em memória.
+      }
+      setFollowState(next)
+      if (next) {
+        paused.current = false
+        scrollToBottom('smooth')
+        setAtBottom(true)
+      }
+    },
+    [scrollToBottom],
+  )
+
+  return { scrollRef, contentRef, onScroll, atBottom, follow, setFollow, jumpToBottom }
 }
 
 export function ChatPage({ id }: { id: string }) {
@@ -174,7 +248,12 @@ export function ChatPage({ id }: { id: string }) {
   const git = useGitStatus(project, turns)
   // Conversa parada: modelo/esforço/modo escolhidos agora valem quando ela for retomada.
   const [pending, setPending] = useState<RunOptions>({})
-  const { ref: scrollRef, onScroll } = useStickToBottom([items.length, queued.length, view.streaming, history.events === null])
+  const { scrollRef, contentRef, onScroll, atBottom, follow, setFollow, jumpToBottom } = useAutoScroll([
+    items.length,
+    queued.length,
+    view.streaming,
+    history.events === null,
+  ])
 
   const resumeCommand = entry?.cwd ? `cd '${entry.cwd}' && claude --resume ${id}` : `claude --resume ${id}`
 
@@ -294,29 +373,60 @@ export function ChatPage({ id }: { id: string }) {
         </DropdownMenu>
       </header>
 
-      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
-        {history.events === null && !history.error ? (
-          <div className="space-y-4 p-4">
-            <Skeleton className="ml-auto h-10 w-2/3" />
-            <Skeleton className="h-24 w-full" />
-            <Skeleton className="h-16 w-full" />
-          </div>
-        ) : (
-          <>
-            {history.error && <p className="p-4 text-sm text-red-600 dark:text-red-400">{history.error}</p>}
-            {items.length === 0 && queued.length === 0 && !working && !history.error && (
-              <p className="p-4 text-center text-sm text-muted-foreground">Nenhuma mensagem ainda.</p>
+      <div className="relative min-h-0 flex-1">
+        <div ref={scrollRef} onScroll={onScroll} className="absolute inset-0 overflow-y-auto">
+          <div ref={contentRef}>
+            {history.events === null && !history.error ? (
+              <div className="space-y-4 p-4">
+                <Skeleton className="ml-auto h-10 w-2/3" />
+                <Skeleton className="h-24 w-full" />
+                <Skeleton className="h-16 w-full" />
+              </div>
+            ) : (
+              <>
+                {history.error && <p className="p-4 text-sm text-red-600 dark:text-red-400">{history.error}</p>}
+                {items.length === 0 && queued.length === 0 && !working && !history.error && (
+                  <p className="p-4 text-center text-sm text-muted-foreground">Nenhuma mensagem ainda.</p>
+                )}
+                <MessageList
+                  items={items}
+                  queued={queued}
+                  sessionId={id}
+                  actionable={panelOpen}
+                  streaming={view.streaming}
+                  working={working}
+                />
+              </>
             )}
-            <MessageList
-              items={items}
-              queued={queued}
-              sessionId={id}
-              actionable={panelOpen}
-              streaming={view.streaming}
-              working={working}
-            />
-          </>
-        )}
+          </div>
+        </div>
+
+        <div className="pointer-events-none absolute right-3 bottom-3 z-10 flex flex-col items-end gap-2">
+          {!atBottom && (
+            <Button
+              variant="secondary"
+              size="icon"
+              onClick={jumpToBottom}
+              aria-label="Ir para a última mensagem"
+              className="pointer-events-auto size-10 rounded-full border shadow-lg"
+            >
+              <ChevronDown />
+            </Button>
+          )}
+          <Button
+            variant="secondary"
+            size="icon"
+            onClick={() => setFollow(!follow)}
+            aria-pressed={follow}
+            aria-label={follow ? 'Acompanhando o fim: tocar para soltar o scroll' : 'Scroll solto: tocar para travar no fim'}
+            className={cn(
+              'pointer-events-auto size-9 rounded-full border shadow-md backdrop-blur',
+              follow ? 'bg-background/70 text-muted-foreground' : 'bg-background text-foreground',
+            )}
+          >
+            {follow ? <Lock /> : <LockOpen />}
+          </Button>
+        </div>
       </div>
 
       {owner === 'pc' ? (
