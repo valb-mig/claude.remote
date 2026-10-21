@@ -457,6 +457,7 @@ export function ChatPage({ id }: { id: string }) {
                   actionable={panelOpen}
                   streaming={view.streaming}
                   working={working}
+                  cwd={entry?.cwd}
                 />
               </>
             )}
