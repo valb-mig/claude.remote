@@ -19,6 +19,7 @@ import { Notifier } from './notifier.ts';
 import { PushService, type PushPrefs, type PushSubscriptionInput } from './push.ts';
 import { SystemMonitor } from './system.ts';
 import { thumbnail } from './thumbs.ts';
+import { RESTART_EXIT_CODE, Updater, saveResume, takeResume } from './updater.ts';
 
 await mkdir(UPLOADS_DIR, { recursive: true });
 const live = new LiveRegistry();
@@ -175,6 +176,26 @@ app.post<{ Params: IdParams; Body: RunBody }>(
 app.get<{ Params: IdParams }>('/api/sessions/:id/context', async (req) => manager.get(req.params.id).contextUsage());
 
 app.get('/api/models', async () => manager.models());
+
+// ---- atualizar o PC pelo celular (ver updater.ts) ----
+
+const updater = new Updater(
+  async () =>
+    (await manager.catalog())
+      .filter((e) => e.owner === 'panel' && (e.state === 'running' || e.state === 'waiting'))
+      .map((e) => e.title),
+  async () => {
+    // Responde antes de sair, para o celular saber que o reinício começou.
+    setTimeout(() => void stop(RESTART_EXIT_CODE), 300);
+  },
+);
+
+app.get('/api/update', async () => updater.status());
+app.post('/api/update', async () => updater.start());
+app.post('/api/update/restart', async () => {
+  await updater.restartNow();
+  return { ok: true };
+});
 
 app.get<{ Params: IdParams & { key: string }; Querystring: { thumb?: string } }>(
   '/api/sessions/:id/images/:key',
@@ -475,12 +496,21 @@ if (!policy.tailnetHost) {
   }, 15_000);
 }
 
-for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-  process.once(signal, async () => {
-    app.log.info('encerrando sessões do painel…');
-    live.stop();
-    await manager.shutdown();
-    await app.close();
-    process.exit(0);
-  });
+/**
+ * Encerra com calma: sinal do sistema (código 0) ou reinício pedido pela atualização. Guarda as
+ * conversas abertas no painel, que voltam sozinhas se o servidor subir de novo em até 10 min.
+ */
+async function stop(code: number): Promise<void> {
+  app.log.info('encerrando sessões do painel…');
+  await saveResume(manager.resumable()).catch((err) => app.log.warn({ err }, 'não deu para guardar as conversas abertas'));
+  live.stop();
+  await manager.shutdown();
+  await app.close();
+  process.exit(code);
 }
+
+for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => void stop(0));
+
+// Voltando de um reinício: reabre as conversas que estavam no painel.
+const reopened = await manager.reopen(await takeResume());
+if (reopened.length) app.log.info({ sessions: reopened }, 'conversas do painel reabertas depois do reinício');

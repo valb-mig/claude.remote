@@ -24,6 +24,7 @@ import { searchProjectFiles } from './project-files.ts';
 import type { PlanUsage } from './system.ts';
 import { imageStore, type StoredImage } from './images.ts';
 import type { MetaStore } from './meta.ts';
+import type { ResumeEntry } from './updater.ts';
 
 export type CatalogState = 'running' | 'waiting' | 'idle' | 'stopped';
 
@@ -348,6 +349,25 @@ export class Manager extends EventEmitter {
     const session = this.get(sessionId);
     await session.release();
     return { resumeCommand: `cd ${shellQuote(session.cwd)} && claude --resume ${session.id}` };
+  }
+
+  /** Conversas abertas no painel com os ajustes atuais, para reabrir depois de um reinício. */
+  resumable(): ResumeEntry[] {
+    return [...this.sessions.values()].filter((s) => s.state !== 'exited').map((s) => ({ sessionId: s.id, ...s.settings }));
+  }
+
+  /** Reabre, sem mandar nada, as conversas que estavam no painel antes do reinício. */
+  async reopen(entries: ResumeEntry[]): Promise<string[]> {
+    const opened: string[] = [];
+    for (const e of entries) {
+      try {
+        const opts = { model: e.model, effort: (e.effort ?? undefined) as EffortLevel | undefined, permissionMode: e.permissionMode as PermissionMode | undefined };
+        opened.push((await this.open(e.sessionId, opts)).id);
+      } catch {
+        // Apagada, aberta no PC nesse meio-tempo…: fica fechada.
+      }
+    }
+    return opened;
   }
 
   async shutdown(): Promise<void> {

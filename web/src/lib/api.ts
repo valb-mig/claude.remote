@@ -10,6 +10,7 @@ import type {
   PushPrefs,
   RunOptions,
   TreeEntry,
+  UpdateStatus,
 } from './types'
 
 export class ApiError extends Error {
@@ -70,6 +71,9 @@ export const api = {
   file: (cwd: string, path: string) => request<FileView>('GET', `/api/file?${project(cwd, path)}`),
   git: (cwd: string) => request<GitStatus | null>('GET', `/api/git?${project(cwd)}`),
   gitDiff: (cwd: string, path: string) => request<{ diff: string }>('GET', `/api/git/diff?${project(cwd, path)}`),
+  update: () => request<UpdateStatus>('GET', '/api/update'),
+  startUpdate: () => post<UpdateStatus>('/api/update'),
+  restartNow: () => post('/api/update/restart'),
   rename: (id: string, title: string) => post(`${sid(id)}/rename`, { title }),
   settings: (id: string, body: RunOptions) => post(`${sid(id)}/settings`, body),
   context: (id: string) => request<ContextUsage>('GET', `${sid(id)}/context`),
@@ -113,6 +117,20 @@ export function errorMessage(err: unknown): string {
       return 'A conversa não existe mais.'
     case 'subscription_not_found':
       return 'O PC não conhece este aparelho. Desative e ative as notificações de novo.'
+    case 'update_running':
+      return 'Uma atualização já está em andamento.'
+    case 'update_dirty':
+      return 'O repositório no PC tem mudanças não commitadas. Resolva pelo terminal.'
+    case 'update_diverged':
+      return 'A main do PC tem commits que não estão no GitHub. Resolva pelo terminal.'
+    case 'update_busy':
+      return `Espere terminar: ${((err.details.sessions as string[] | undefined) ?? []).join(', ')}.`
+    case 'update_up_to_date':
+      return 'O PC já está na versão mais nova.'
+    case 'update_fetch_failed':
+      return 'Não deu para falar com o GitHub.'
+    case 'update_no_service':
+      return 'O servidor não roda como serviço. Reinicie pelo terminal.'
     case 'push_failed':
       return `O serviço de push recusou o aviso${err.details.status ? ` (HTTP ${String(err.details.status)})` : ''}.`
     default:

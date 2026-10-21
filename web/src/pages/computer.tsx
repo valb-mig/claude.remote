@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { PageHeader } from '@/components/layout'
 import { Meter, WindowMeter } from '@/components/pc-status'
 import { PushSettings } from '@/components/push-settings'
+import { UpdateCard } from '@/components/update-card'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -182,6 +183,8 @@ export function ComputerPage() {
             </Select>
           </CardContent>
         </Card>
+
+        <UpdateCard />
 
         <Card size="sm">
           <CardHeader>
