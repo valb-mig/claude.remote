@@ -10,6 +10,7 @@ import { ComputerPage } from '@/pages/computer'
 import { NewChatPage } from '@/pages/new-chat'
 import { ProjectsPage } from '@/pages/projects'
 import { SessionsPage } from '@/pages/sessions'
+import { SharePage } from '@/pages/share'
 
 export default function App() {
   const [, navigate] = useLocation()
@@ -37,6 +38,9 @@ export default function App() {
         <Route path="/s/:id">{(params) => <ChatPage key={params.id} id={params.id} />}</Route>
         <Route path="/nova">
           <NewChatPage />
+        </Route>
+        <Route path="/compartilhar">
+          <SharePage />
         </Route>
         <Route>
           <main className="min-h-0 flex-1 overflow-y-auto">

@@ -28,6 +28,18 @@ export default defineConfig({
         orientation: 'portrait',
         background_color: '#0a0a0a',
         theme_color: '#0a0a0a',
+        // "Compartilhar" do Android: prints, arquivos e textos de outros apps (ver SharePage e sw.ts).
+        share_target: {
+          action: '/compartilhar',
+          method: 'POST',
+          enctype: 'multipart/form-data',
+          params: {
+            title: 'title',
+            text: 'text',
+            url: 'url',
+            files: [{ name: 'files', accept: ['image/*', 'video/*', 'audio/*', 'application/pdf', 'text/*', '*/*'] }],
+          },
+        },
         icons: [
           { src: 'pwa-192.png', sizes: '192x192', type: 'image/png' },
           { src: 'pwa-512.png', sizes: '512x512', type: 'image/png' },

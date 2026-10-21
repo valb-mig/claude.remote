@@ -1,6 +1,8 @@
 import { clientsClaim } from 'workbox-core'
 import { cleanupOutdatedCaches, createHandlerBoundToURL, precacheAndRoute } from 'workbox-precaching'
 import { NavigationRoute, registerRoute } from 'workbox-routing'
+import { kvSet } from './lib/db'
+import { SHARE_KEY, SHARE_PATH, type Shared } from './lib/share'
 import type { PushPayload } from './lib/types'
 
 declare const self: ServiceWorkerGlobalScope
@@ -11,6 +13,31 @@ clientsClaim()
 cleanupOutdatedCaches()
 precacheAndRoute(self.__WB_MANIFEST)
 registerRoute(new NavigationRoute(createHandlerBoundToURL('/index.html'), { denylist: [/^\/api\//, /^\/ws/] }))
+
+// ---- "Compartilhar" do Android (share_target no manifesto) ----
+
+// O Android manda um POST com os arquivos; guarda no banco do app e abre a tela de escolher a conversa.
+self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'POST' || new URL(event.request.url).pathname !== SHARE_PATH) return
+  event.respondWith(
+    (async () => {
+      const form = await event.request.formData()
+      const field = (name: string) => {
+        const v = form.get(name)
+        return typeof v === 'string' && v.trim() ? v : undefined
+      }
+      const shared: Shared = {
+        title: field('title'),
+        text: field('text'),
+        url: field('url'),
+        files: form.getAll('files').filter((f): f is File => f instanceof File && f.size > 0),
+        at: Date.now(),
+      }
+      await kvSet(SHARE_KEY, shared)
+      return Response.redirect(SHARE_PATH, 303)
+    })(),
+  )
+})
 
 // ---- notificações (o PC manda pelo Web Push; ver server/src/notifier.ts) ----
 
