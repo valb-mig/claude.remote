@@ -18,6 +18,7 @@ import { MetaStore } from './meta.ts';
 import { Notifier } from './notifier.ts';
 import { PushService, type PushPrefs, type PushSubscriptionInput } from './push.ts';
 import { SystemMonitor } from './system.ts';
+import { thumbnail } from './thumbs.ts';
 
 await mkdir(UPLOADS_DIR, { recursive: true });
 const live = new LiveRegistry();
@@ -175,13 +176,17 @@ app.get<{ Params: IdParams }>('/api/sessions/:id/context', async (req) => manage
 
 app.get('/api/models', async () => manager.models());
 
-app.get<{ Params: IdParams & { key: string } }>('/api/sessions/:id/images/:key', async (req, reply) => {
-  const image = await manager.image(req.params.id, req.params.key);
-  return reply
-    .header('content-type', image.mediaType)
-    .header('cache-control', 'private, max-age=86400')
-    .send(Buffer.from(image.data, 'base64'));
-});
+app.get<{ Params: IdParams & { key: string }; Querystring: { thumb?: string } }>(
+  '/api/sessions/:id/images/:key',
+  async (req, reply) => {
+    const image = await manager.image(req.params.id, req.params.key);
+    // `?thumb=1`: versão reduzida para miniaturas; o original fica para a imagem ampliada.
+    const { mediaType, data } = req.query.thumb
+      ? await thumbnail(`${req.params.id}/${req.params.key}`, image)
+      : { mediaType: image.mediaType, data: Buffer.from(image.data, 'base64') };
+    return reply.header('content-type', mediaType).header('cache-control', 'private, max-age=86400').send(data);
+  },
+);
 
 app.post<{ Params: IdParams }>('/api/sessions/:id/delete', async (req) => {
   await manager.delete(req.params.id);

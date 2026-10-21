@@ -24,7 +24,7 @@ import { createElement } from 'react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ImageThumb } from '@/components/image-viewer'
 import { Markdown } from '@/components/markdown'
-import { imageUrl } from '@/lib/api'
+import { imageUrl, thumbUrl } from '@/lib/api'
 import { shortPath, toolSummary } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useGallery } from './gallery'
@@ -146,7 +146,7 @@ function ToolRow({ sessionId, use, result }: Pick<ToolEntry, 'use' | 'result'> &
       {result?.images && result.images.length > 0 && (
         <div className="flex gap-1.5 overflow-x-auto px-2 pb-1.5">
           {result.images.map((key) => (
-            <ImageThumb key={key} src={imageUrl(sessionId, key)} gallery={claude} from="Claude" className="h-24 max-w-44" />
+            <ImageThumb key={key} src={imageUrl(sessionId, key)} thumb={thumbUrl(sessionId, key)} gallery={claude} from="Claude" className="h-24 max-w-44" />
           ))}
         </div>
       )}

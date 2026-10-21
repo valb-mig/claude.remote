@@ -299,12 +299,15 @@ export function ImageViewer({
  */
 export function ImageThumb({
   src,
+  thumb,
   gallery,
   from,
   alt,
   className,
 }: {
   src: string
+  /** Versão reduzida para a miniatura; a ampliada carrega `src`. */
+  thumb?: string
   gallery?: string[]
   from?: string
   alt?: string
@@ -324,7 +327,7 @@ export function ImageThumb({
         className="shrink-0 overflow-hidden rounded-xl border bg-muted"
         aria-label="Ampliar imagem"
       >
-        <img src={src} alt={alt ?? ''} loading="lazy" className={cn('block object-cover', className)} />
+        <img src={thumb ?? src} alt={alt ?? ''} loading="lazy" className={cn('block object-cover', className)} />
       </button>
       <ImageViewer images={images} index={index} from={from} onIndexChange={setIndex} open={open} onOpenChange={setOpen} />
     </>

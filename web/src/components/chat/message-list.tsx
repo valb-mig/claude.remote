@@ -2,7 +2,7 @@ import { CircleAlert, Clock, FileText, Folder, Info, Loader2 } from 'lucide-reac
 import { useMemo } from 'react'
 import { ImageThumb } from '@/components/image-viewer'
 import { Markdown } from '@/components/markdown'
-import { imageUrl } from '@/lib/api'
+import { imageUrl, thumbUrl } from '@/lib/api'
 import { duration } from '@/lib/format'
 import { discard, retryItem, type OutboxItem } from '@/lib/outbox'
 import { useStore } from '@/lib/store'
@@ -62,7 +62,7 @@ function UserBubble({ sessionId, text, images, files }: { sessionId: string; tex
       {images && images.length > 0 && (
         <div className="flex max-w-[85%] flex-wrap justify-end gap-1.5">
           {images.map((key) => (
-            <ImageThumb key={key} src={imageUrl(sessionId, key)} gallery={mine} from="Você" className="h-28 max-w-40" />
+            <ImageThumb key={key} src={imageUrl(sessionId, key)} thumb={thumbUrl(sessionId, key)} gallery={mine} from="Você" className="h-28 max-w-40" />
           ))}
         </div>
       )}

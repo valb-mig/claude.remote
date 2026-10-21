@@ -124,3 +124,8 @@ export function errorMessage(err: unknown): string {
 export function imageUrl(sessionId: string, key: string): string {
   return key.startsWith('data:') ? key : `${sid(sessionId)}/images/${encodeURIComponent(key)}`
 }
+
+/** Versão reduzida para miniaturas (o PC gera, até 512 px); a ampliada usa `imageUrl`. */
+export function thumbUrl(sessionId: string, key: string): string {
+  return key.startsWith('data:') ? key : `${imageUrl(sessionId, key)}?thumb=1`
+}

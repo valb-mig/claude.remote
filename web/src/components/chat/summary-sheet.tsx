@@ -2,7 +2,7 @@ import { CheckCircle2, XCircle } from 'lucide-react'
 import { useMemo } from 'react'
 import { ImageThumb } from '@/components/image-viewer'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import { imageUrl } from '@/lib/api'
+import { imageUrl, thumbUrl } from '@/lib/api'
 import { FILE_TOOLS, TEST_COMMAND, shortPath } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import type { Keyed } from './items'
@@ -63,14 +63,15 @@ function Section({ title, count, className, children }: { title: string; count: 
 function MediaGroup({ sessionId, title, from, keys }: { sessionId: string; title: string; from: string; keys: string[] }) {
   if (keys.length === 0) return null
   const gallery = keys.map((key) => imageUrl(sessionId, key))
+  const thumbs = keys.map((key) => thumbUrl(sessionId, key))
   return (
     <li className="space-y-1.5">
       <p className="text-xs text-muted-foreground">
         {title} ({keys.length})
       </p>
       <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-6">
-        {gallery.map((src) => (
-          <ImageThumb key={src} src={src} gallery={gallery} from={from} className="aspect-square w-full" />
+        {gallery.map((src, i) => (
+          <ImageThumb key={src} src={src} thumb={thumbs[i]} gallery={gallery} from={from} className="aspect-square w-full" />
         ))}
       </div>
     </li>
