@@ -10,8 +10,9 @@ const STEPS = 1000
  * Barra da leitura em voz alta, em cima da caixa de mensagem, como a do Spotify: pausar e continuar,
  * a frase que está sendo lida e até onde já leu. Tocar ou arrastar na barra pula para outra frase.
  */
-export function SpeechPlayer() {
-  const reading = useSpeech((s) => s.reading)
+export function SpeechPlayer({ sessionId }: { sessionId: string }) {
+  // Com conversas lado a lado, a barra aparece só na conversa que está sendo lida.
+  const reading = useSpeech((s) => (s.reading?.key.startsWith(`${sessionId}:`) ? s.reading : null))
   // Enquanto arrasta, a barra segue o dedo; a leitura só pula ao soltar.
   const [dragging, setDragging] = useState<number | null>(null)
   if (!reading) return null

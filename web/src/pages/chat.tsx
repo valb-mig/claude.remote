@@ -1,6 +1,7 @@
 import {
   ArrowLeft,
   ChevronDown,
+  Columns2,
   Copy,
   EllipsisVertical,
   GitBranch,
@@ -18,10 +19,11 @@ import {
   Trash2,
   Volume2,
   VolumeOff,
+  X,
 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { Link, useLocation } from 'wouter'
+import { Link } from 'wouter'
 import { Composer } from '@/components/chat/composer'
 import { buildItems, type Keyed } from '@/components/chat/items'
 import { MessageList } from '@/components/chat/message-list'
@@ -30,6 +32,7 @@ import { SummarySheet } from '@/components/chat/summary-sheet'
 import { ExplorerSheet } from '@/components/explorer'
 import { GitSheet } from '@/components/git-panel'
 import { RepoLink } from '@/components/repo-link'
+import { SessionPicker } from '@/components/session-picker'
 import { StateBadge } from '@/components/state-badge'
 import {
   AlertDialog,
@@ -58,6 +61,7 @@ import { useGitStatus, useHome } from '@/lib/hooks'
 import { enqueue, useOutbox } from '@/lib/outbox'
 import { clearNotifications } from '@/lib/push'
 import { setAutoSpeech, speakNew, speechSupported, useSpeech } from '@/lib/speech'
+import { closeChat, openBeside, swapChat, usePane, useSplit } from '@/lib/split'
 import { onLiveEvent, selectView, subscribe, unsubscribe, useStore } from '@/lib/store'
 import type { ContextUsage, LoggedEvent, RunOptions } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -196,7 +200,10 @@ function useAutoScroll(deps: unknown[]) {
 }
 
 export function ChatPage({ id }: { id: string }) {
-  const [, navigate] = useLocation()
+  // Com conversas lado a lado (ver lib/split.ts), cada ação mexe só neste lugar da tela.
+  const pane = usePane()
+  const split = useSplit()
+  const [besideOpen, setBesideOpen] = useState(false)
   const view = useStore(selectView(id))
   const entry = useStore((s) => s.catalog.find((c) => c.sessionId === id))
   const rekeyed = useStore((s) => s.rekeys[id])
@@ -223,15 +230,15 @@ export function ChatPage({ id }: { id: string }) {
   }, [id])
 
   useEffect(() => {
-    if (rekeyed) navigate(`/s/${rekeyed}`, { replace: true })
-  }, [rekeyed, navigate])
+    if (rekeyed) swapChat(id, rekeyed, true)
+  }, [rekeyed, id])
 
   // Leitura automática (o alto-falante no topo): as respostas que chegam ao vivo, nunca o histórico.
   const autoSpeech = useSpeech((s) => s.auto)
   useEffect(
     () =>
       onLiveEvent((sessionId, runId, e) => {
-        if (sessionId === id && e.kind === 'assistant' && !e.parentToolUseId) speakNew(liveKey(runId, e.seq), e.text)
+        if (sessionId === id && e.kind === 'assistant' && !e.parentToolUseId) speakNew(`${id}:${liveKey(runId, e.seq)}`, e.text)
       }),
     [id],
   )
@@ -300,12 +307,18 @@ export function ChatPage({ id }: { id: string }) {
   const fork = () =>
     run(async () => {
       const { sessionId } = await api.open(id, { fork: true })
-      navigate(`/s/${sessionId}`)
+      swapChat(id, sessionId)
     })
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex shrink-0 items-center gap-1 border-b px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 compact:py-1">
+      <header
+        className={cn(
+          'flex shrink-0 items-center gap-1 border-b px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 compact:py-1',
+          // Lado a lado: a conversa em foco (a que recebe o que é escolhido na lista) ganha uma faixa no topo.
+          pane.split && pane.focused && 'shadow-[inset_0_2px_0_var(--color-primary)]',
+        )}
+      >
         {/* No PC a lista de conversas já está ao lado. */}
         <Button variant="ghost" size="icon" asChild aria-label="Voltar" className="lg:hidden">
           <Link href="/">
@@ -387,6 +400,15 @@ export function ChatPage({ id }: { id: string }) {
             <DropdownMenuItem onSelect={() => setSummaryOpen(true)}>
               <ListChecks /> Resumo da sessão
             </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() =>
+                split.canAdd
+                  ? setBesideOpen(true)
+                  : toast(`Cabem ${split.max} conversas lado a lado nesta tela. Feche uma para abrir outra.`)
+              }
+            >
+              <Columns2 /> Abrir outra ao lado
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               disabled={busy || !entry}
@@ -406,9 +428,14 @@ export function ChatPage({ id }: { id: string }) {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        {pane.split && (
+          <Button variant="ghost" size="icon" onClick={() => closeChat(id)} aria-label="Tirar esta conversa da tela">
+            <X />
+          </Button>
+        )}
       </header>
 
-      <div className="relative min-h-0 flex-1">
+      <div className={cn('relative min-h-0 flex-1', pane.collapsed && 'hidden')}>
         <div ref={scrollRef} onScroll={onScroll} className="absolute inset-0 overflow-y-auto">
           <div ref={contentRef} className="mx-auto w-full max-w-3xl">
             {history.events === null && !history.error ? (
@@ -430,6 +457,7 @@ export function ChatPage({ id }: { id: string }) {
                   actionable={panelOpen}
                   streaming={view.streaming}
                   working={working}
+                  cwd={entry?.cwd}
                 />
               </>
             )}
@@ -464,50 +492,54 @@ export function ChatPage({ id }: { id: string }) {
         </div>
       </div>
 
-      <SpeechPlayer />
+      {/* Encolhida (celular em pé, digitando na outra): some sem desmontar, sem perder rascunho nem leitura. */}
+      <div className={pane.collapsed ? 'hidden' : 'contents'}>
+        <SpeechPlayer sessionId={id} />
 
-      {owner === 'pc' ? (
-        <div className="shrink-0 space-y-2 border-t px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-          <p className="text-xs text-muted-foreground">
-            {state === 'idle'
-              ? 'Aberta no PC e ociosa. Assumir encerra a sessão no PC e a continua aqui, com todo o contexto.'
-              : 'Aberta no PC e ocupada. Dá para assumir quando ela ficar ociosa.'}
-          </p>
-          <Button className="h-11 w-full" disabled={busy || state !== 'idle'} onClick={() => setConfirmTakeover(true)}>
-            <Smartphone /> Assumir sessão
-          </Button>
-        </div>
-      ) : owner === 'panel' ? (
-        <Composer
-          sessionId={id}
-          cwd={entry?.cwd}
-          branch={git.status?.branch}
-          working={working || state === 'waiting'}
-          // Logo após retomar, enquanto o primeiro evento de ajustes não chega, vale o que foi escolhido.
-          settings={Object.keys(view.settings).length ? view.settings : pending}
-          context={context}
-          onChangeSettings={async (patch) => {
-            await api.settings(id, patch)
-          }}
-          onCompact={() => api.send(id, { text: '/compact' }).then(() => undefined)}
-          onSend={(text, attachments) => enqueue(id, text, attachments)}
-          onInterrupt={() => api.interrupt(id).then(() => undefined)}
-        />
-      ) : (
-        <Composer
-          sessionId={id}
-          cwd={entry?.cwd}
-          branch={git.status?.branch}
-          working={false}
-          hint="Enviar retoma esta conversa aqui pelo celular."
-          settings={pending}
-          context={null}
-          onChangeSettings={(patch) => setPending((p) => ({ ...p, ...patch }))}
-          onSend={(text, attachments) => enqueue(id, text, attachments, pending)}
-        />
-      )}
+        {owner === 'pc' ? (
+          <div className="shrink-0 space-y-2 border-t px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            <p className="text-xs text-muted-foreground">
+              {state === 'idle'
+                ? 'Aberta no PC e ociosa. Assumir encerra a sessão no PC e a continua aqui, com todo o contexto.'
+                : 'Aberta no PC e ocupada. Dá para assumir quando ela ficar ociosa.'}
+            </p>
+            <Button className="h-11 w-full" disabled={busy || state !== 'idle'} onClick={() => setConfirmTakeover(true)}>
+              <Smartphone /> Assumir sessão
+            </Button>
+          </div>
+        ) : owner === 'panel' ? (
+          <Composer
+            sessionId={id}
+            cwd={entry?.cwd}
+            branch={git.status?.branch}
+            working={working || state === 'waiting'}
+            // Logo após retomar, enquanto o primeiro evento de ajustes não chega, vale o que foi escolhido.
+            settings={Object.keys(view.settings).length ? view.settings : pending}
+            context={context}
+            onChangeSettings={async (patch) => {
+              await api.settings(id, patch)
+            }}
+            onCompact={() => api.send(id, { text: '/compact' }).then(() => undefined)}
+            onSend={(text, attachments) => enqueue(id, text, attachments)}
+            onInterrupt={() => api.interrupt(id).then(() => undefined)}
+          />
+        ) : (
+          <Composer
+            sessionId={id}
+            cwd={entry?.cwd}
+            branch={git.status?.branch}
+            working={false}
+            hint="Enviar retoma esta conversa aqui pelo celular."
+            settings={pending}
+            context={null}
+            onChangeSettings={(patch) => setPending((p) => ({ ...p, ...patch }))}
+            onSend={(text, attachments) => enqueue(id, text, attachments, pending)}
+          />
+        )}
+      </div>
 
       <SummarySheet sessionId={id} events={events} cwd={entry?.cwd} open={summaryOpen} onOpenChange={setSummaryOpen} />
+      <SessionPicker open={besideOpen} onOpenChange={setBesideOpen} exclude={split.ids} onPick={(other) => openBeside(other, id)} />
 
       <Dialog open={renaming !== null} onOpenChange={(o) => !o && setRenaming(null)}>
         <DialogContent>
@@ -555,7 +587,7 @@ export function ChatPage({ id }: { id: string }) {
               onClick={() =>
                 run(async () => {
                   await api.remove(id)
-                  navigate('/', { replace: true })
+                  closeChat(id, true)
                 }, 'Conversa apagada')
               }
             >

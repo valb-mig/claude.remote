@@ -1,5 +1,5 @@
-import { CircleAlert, Clock, FileText, Folder, Info, Loader2, Pause, Play } from 'lucide-react'
-import { useEffect, useMemo } from 'react'
+import { CircleAlert, Clock, FilePen, FileText, Folder, Info, Link2, Loader2, Pause, Play, SquareTerminal } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import { ImageThumb } from '@/components/image-viewer'
 import { Markdown } from '@/components/markdown'
 import { ReadingLine } from '@/components/reading-line'
@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { imageUrl, thumbUrl } from '@/lib/api'
 import { duration } from '@/lib/format'
 import { discard, retryItem, type OutboxItem } from '@/lib/outbox'
-import { speechSupported, stopSpeaking, toggleSpeech, useSpeech } from '@/lib/speech'
+import { speechSupported, stopSpeakingIn, toggleSpeech, useSpeech } from '@/lib/speech'
 import { useStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { Activity } from './activity'
@@ -15,6 +15,8 @@ import { ApprovalCard } from './approval-card'
 import { GalleryContext, galleryOf, useGallery } from './gallery'
 import type { Item } from './items'
 import { QuestionCard } from './question-card'
+import { turnsOf, type TurnInfo } from './turn'
+import { TurnSheet, type TurnSection } from './turn-sheet'
 
 function Divider({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
@@ -117,11 +119,46 @@ function QueuedBubble({ item, sessionId }: { item: OutboxItem; sessionId: string
   )
 }
 
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
+
+/** O que o turno fez: arquivos alterados, comandos e links; cada atalho abre o painel na seção dele. */
+function TurnShortcuts({ turn, cwd }: { turn: TurnInfo; cwd?: string }) {
+  const [open, setOpen] = useState(false)
+  const [section, setSection] = useState<TurnSection>('files')
+  const show = (s: TurnSection) => {
+    setSection(s)
+    setOpen(true)
+  }
+  const links = turn.visited.length + turn.cited.length
+  const chip = 'rounded-full text-muted-foreground'
+  return (
+    <>
+      {turn.files.length > 0 && (
+        <Button variant="outline" size="sm" className={chip} onClick={() => show('files')}>
+          <FilePen /> {plural(turn.files.length, 'arquivo', 'arquivos')}
+        </Button>
+      )}
+      {turn.commands.length > 0 && (
+        <Button variant="outline" size="sm" className={chip} onClick={() => show('commands')}>
+          <SquareTerminal /> {plural(turn.commands.length, 'comando', 'comandos')}
+        </Button>
+      )}
+      {links > 0 && (
+        <Button variant="outline" size="sm" className={chip} onClick={() => show('links')}>
+          <Link2 /> {plural(links, 'link', 'links')}
+        </Button>
+      )}
+      <TurnSheet turn={turn} cwd={cwd} section={section} open={open} onOpenChange={setOpen} />
+    </>
+  )
+}
+
 /**
  * Resposta do Claude, com **Ouvir** embaixo: lê o texto em voz alta com a voz do aparelho, e o
- * trecho sendo lido fica em destaque (a barra de controle fica em cima da caixa de mensagem).
+ * trecho sendo lido fica em destaque (a barra de controle fica em cima da caixa de mensagem). Na
+ * última resposta de cada turno, os atalhos do que o turno fez.
  */
-function AssistantMessage({ id, text }: { id: string; text: string }) {
+function AssistantMessage({ id, text, turn, cwd }: { id: string; text: string; turn?: TurnInfo; cwd?: string }) {
   const state = useSpeech((s) => (s.reading?.key === id ? (s.reading.playing ? 'playing' : 'paused') : null))
   const line = useSpeech((s) => (s.reading?.key === id ? (s.reading.units[s.reading.index]?.line ?? null) : null))
   return (
@@ -129,16 +166,16 @@ function AssistantMessage({ id, text }: { id: string; text: string }) {
       <ReadingLine value={line}>
         <Markdown text={text} />
       </ReadingLine>
-      {speechSupported && (
-        <Button
-          variant={state ? 'default' : 'secondary'}
-          size="sm"
-          className="mt-2 rounded-full pr-3.5"
-          onClick={() => toggleSpeech(id, text)}
-        >
-          {state === 'playing' ? <Pause className="fill-current" /> : <Play className="fill-current" />}
-          {state === 'playing' ? 'Pausar' : state === 'paused' ? 'Continuar' : 'Ouvir'}
-        </Button>
+      {(speechSupported || turn) && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {speechSupported && (
+            <Button variant={state ? 'default' : 'secondary'} size="sm" className="rounded-full pr-3.5" onClick={() => toggleSpeech(id, text)}>
+              {state === 'playing' ? <Pause className="fill-current" /> : <Play className="fill-current" />}
+              {state === 'playing' ? 'Pausar' : state === 'paused' ? 'Continuar' : 'Ouvir'}
+            </Button>
+          )}
+          {turn && <TurnShortcuts turn={turn} cwd={cwd} />}
+        </div>
       )}
     </div>
   )
@@ -151,12 +188,24 @@ function resultLabel(result: Extract<Item, { type: 'result' }>['result']): strin
   return 'Terminou com erro'
 }
 
-function ItemView({ item, sessionId, actionable }: { item: Item; sessionId: string; actionable: boolean }) {
+function ItemView({
+  item,
+  sessionId,
+  actionable,
+  turn,
+  cwd,
+}: {
+  item: Item
+  sessionId: string
+  actionable: boolean
+  turn?: TurnInfo
+  cwd?: string
+}) {
   switch (item.type) {
     case 'user':
       return <UserBubble sessionId={sessionId} text={item.text} images={item.images} />
     case 'assistant':
-      return <AssistantMessage id={item.key} text={item.text} />
+      return <AssistantMessage id={`${sessionId}:${item.key}`} text={item.text} turn={turn} cwd={cwd} />
     case 'notice':
       return (
         <div className="flex items-start gap-2 text-xs text-muted-foreground">
@@ -191,6 +240,7 @@ export function MessageList({
   actionable,
   streaming,
   working,
+  cwd,
 }: {
   items: Item[]
   /** Mensagens na fila do celular, ainda não entregues ao PC. */
@@ -200,16 +250,19 @@ export function MessageList({
   actionable: boolean
   streaming: string
   working: boolean
+  /** Pasta do projeto: os arquivos alterados aparecem com o caminho a partir dela. */
+  cwd?: string
 }) {
   const gallery = useMemo(() => galleryOf(items, sessionId), [items, sessionId])
-  // Trocar de conversa (ou sair do chat) cala a leitura da anterior.
-  useEffect(() => stopSpeaking, [sessionId])
+  const turns = useMemo(() => turnsOf(items), [items])
+  // Conversa saindo da tela cala a leitura dela; a de outra conversa aberta ao lado segue.
+  useEffect(() => () => stopSpeakingIn(sessionId), [sessionId])
   return (
     // Tocar numa imagem abre a tela cheia passando pelas outras do mesmo lado da conversa.
     <GalleryContext value={gallery}>
       <div className="space-y-4 px-4 py-4">
         {items.map((item) => (
-          <ItemView key={item.key} item={item} sessionId={sessionId} actionable={actionable} />
+          <ItemView key={item.key} item={item} sessionId={sessionId} actionable={actionable} turn={turns.get(item.key)} cwd={cwd} />
         ))}
         {queued.map((item) => (
           <QueuedBubble key={item.id} item={item} sessionId={sessionId} />

@@ -4,17 +4,18 @@ import { Link, Redirect, Route, Switch, useLocation } from 'wouter'
 import { BottomNav, ConnectionBanner } from '@/components/layout'
 import { Button } from '@/components/ui/button'
 import { useWide } from '@/lib/hooks'
+import { useSplit } from '@/lib/split'
 import { startOutbox } from '@/lib/outbox'
 import { syncPush } from '@/lib/push'
 import { connect } from '@/lib/store'
 import { watchUpdates } from '@/lib/update'
 import { cn } from '@/lib/utils'
-import { ChatPage } from '@/pages/chat'
 import { ComputerPage } from '@/pages/computer'
 import { NewChatPage } from '@/pages/new-chat'
 import { ProjectsPage } from '@/pages/projects'
 import { SessionsPage } from '@/pages/sessions'
 import { SharePage } from '@/pages/share'
+import { ChatSplit } from '@/pages/split'
 
 export default function App() {
   const [, navigate] = useLocation()
@@ -43,7 +44,9 @@ export default function App() {
       <div className={cn('flex min-w-0 flex-1 flex-col', !wide && 'mx-auto max-w-2xl compact:max-w-none')}>
         <ConnectionBanner />
         <Switch>
-          <Route path="/s/:id">{(params) => <ChatPage key={params.id} id={params.id} />}</Route>
+          <Route path="/s/:id">
+            <ChatSplit />
+          </Route>
           <Route path="/nova">
             <NewChatPage />
           </Route>
@@ -62,8 +65,10 @@ export default function App() {
 
 /** PC e tablet deitado: a lista de conversas fica fixa ao lado, com as abas no pé dela. */
 function Sidebar() {
+  // Com conversas lado a lado, a lista fica mais estreita para sobrar espaço para elas.
+  const split = useSplit().ids.length > 1
   return (
-    <aside className="flex w-80 shrink-0 flex-col border-r xl:w-96">
+    <aside className={cn('flex w-80 shrink-0 flex-col border-r', !split && 'xl:w-96')}>
       <div className="min-h-0 flex-1 overflow-y-auto">
         <SessionsPage />
       </div>

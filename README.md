@@ -154,6 +154,13 @@ O app se ajusta à tela:
 - **Celular deitado:** o app instalado gira junto. As abas viram uma coluna na lateral, e o cabeçalho e a caixa de mensagem ficam mais baixos para sobrar espaço para a conversa; a branch continua no **⎇** do topo. Depois de atualizar, o Android pode levar até um dia para liberar a rotação no app instalado; reinstalar o app faz valer na hora.
 - **PC ou tablet deitado** (a partir de 1024 px de largura): a lista de conversas fica fixa à esquerda, com as abas no pé dela, e a conversa aberta fica ao lado, marcada na lista. Trocar de conversa não precisa voltar à lista. Sem conversa aberta, o lado direito mostra **Nova conversa**.
 
+Conversas lado a lado (split): **Abrir outra ao lado**, no menu ⋮ do chat, escolhe a conversa que divide a tela. No PC também dá pelo botão que aparece ao passar o mouse numa conversa da lista.
+- Cabem 2 no celular: em pé, uma em cima da outra, e deitado, lado a lado. Digitando numa, a outra encolhe até o cabeçalho para o teclado não espremer as duas.
+- No PC, cabem conforme a largura da tela, até 4: 2 numa tela de 1280 px, 3 numa de 1440 px e 4 numa de 1920 px.
+- A conversa em foco tem uma faixa no topo; tocar numa conversa a põe em foco, e clicar noutra da lista troca a que está em foco.
+- O **×** no cabeçalho tira a conversa da tela, e o voltar desfaz a última abertura ou fechamento.
+- Cada conversa é um chat completo, com caixa de mensagem, arquivos, git e leitura em voz alta; a barra de leitura aparece na conversa que está sendo lida.
+
 Notificações, mesmo com o app fechado, depois de ativadas na aba Computador:
 - **Sempre:** quando o Claude faz uma pergunta (com as opções), pede aprovação (com o comando ou o arquivo) ou a sessão cai.
 - **Quando terminar** (opcional): com o começo da última resposta do Claude.
@@ -182,6 +189,10 @@ No chat:
 - O alto-falante no topo do chat liga a **leitura automática**: cada resposta nova do Claude é lida sozinha, sem tocar em **Ouvir**. Uma resposta que chega com outra sendo lida espera a vez, e o histórico nunca é lido. A escolha vale para todas as conversas e fica salva no celular; desligar cala na hora.
 
   No Android, a voz é a de **Configurações › Acessibilidade › Saída de texto para fala** (o nome muda conforme a marca do celular): escolha **Serviços de fala do Google**, idioma Português (Brasil), e baixe a voz para ela funcionar sem internet.
+- Na última resposta de cada turno (da sua mensagem até o fim da resposta), ao lado de **Ouvir**, aparecem atalhos do que o Claude fez nele, quando houver: **arquivos**, **comandos** e **links**. Cada um abre o painel **Nesta resposta** na seção dele:
+  - **Arquivos alterados**, com as linhas colocadas e tiradas; tocar mostra o diff de cada edição. Entram as mudanças feitas pelas ferramentas de edição do Claude (Edit, Write); arquivos mudados por um comando (um script, um formatador) aparecem só em **Comandos**.
+  - **Comandos** do terminal, com ✓ ou ✗; tocar mostra o comando e a saída.
+  - **Links**: as páginas que o Claude acessou e as pesquisas que fez na web, e os links citados na resposta.
 - Numa conversa parada, modelo, esforço e modo escolhidos na caixa valem quando ela for retomada.
 - Sem internet, ou com o PC fora de alcance, a mensagem não se perde, como no WhatsApp: aparece com um relógio e **Aguardando conexão** e é enviada sozinha, na ordem, assim que a conexão volta, mesmo que o app tenha sido fechado nesse meio-tempo. Se não der para entregar (por exemplo, a sessão foi aberta no PC), ela fica marcada como **Não enviada**, com **Tentar de novo** e **Descartar**. Um reenvio nunca repete o turno no Claude.
 - Imagens que o Claude devolve (prints, imagens lidas) e as que você envia aparecem como miniatura, reduzida no PC (até 512 px) para pesar pouco no 4G; o original só é baixado ao ampliar. Tocar abre a imagem ampliada por cima do chat, com quem mandou e a posição no topo ("Claude · 3 / 8"):
