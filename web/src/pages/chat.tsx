@@ -23,6 +23,7 @@ import { Link, useLocation } from 'wouter'
 import { Composer } from '@/components/chat/composer'
 import { buildItems, type Keyed } from '@/components/chat/items'
 import { MessageList } from '@/components/chat/message-list'
+import { SpeechPlayer } from '@/components/chat/speech-player'
 import { SummarySheet } from '@/components/chat/summary-sheet'
 import { ExplorerSheet } from '@/components/explorer'
 import { GitSheet } from '@/components/git-panel'
@@ -429,6 +430,8 @@ export function ChatPage({ id }: { id: string }) {
           </Button>
         </div>
       </div>
+
+      <SpeechPlayer />
 
       {owner === 'pc' ? (
         <div className="shrink-0 space-y-2 border-t px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
