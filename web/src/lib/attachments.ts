@@ -65,6 +65,14 @@ export async function toAttachment(file: File): Promise<Attachment> {
   }
 }
 
+/** Mesmo anexo com a imagem editada (marcações, recorte) e a miniatura refeita. */
+export async function withImage(attachment: Attachment, blob: Blob): Promise<Attachment> {
+  const bitmap = await createImageBitmap(blob)
+  const thumb = `data:image/jpeg;base64,${await blobToBase64(await resized(bitmap, 320, 0.7))}`
+  bitmap.close()
+  return { ...attachment, mediaType: blob.type, data: await blobToBase64(blob), thumb, size: blob.size }
+}
+
 /** Formato enviado à API (sem os campos só de interface) e checagem do limite total. */
 export function toPayload(list: Attachment[]) {
   const total = list.reduce((n, a) => n + a.data.length, 0)

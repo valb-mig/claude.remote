@@ -3,12 +3,18 @@
 import * as React from "react"
 import { cn } from "cn"
 import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui"
+import { useBackClosable } from "@/lib/back-close"
 import { CheckIcon, ChevronRightIcon } from "lucide-react"
 
+// Voltar do celular fecha em vez de sair da tela.
 function DropdownMenu({
+  open,
+  defaultOpen,
+  onOpenChange,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
-  return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />
+  const state = useBackClosable({ open, defaultOpen, onOpenChange })
+  return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} {...state} />
 }
 
 function DropdownMenuPortal({

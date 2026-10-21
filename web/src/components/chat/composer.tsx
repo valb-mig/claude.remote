@@ -1,18 +1,16 @@
-import { ArrowUp, Mic, Slash, Square } from 'lucide-react'
+import { ArrowUp, GitBranch, Mic, Slash, Square } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { errorMessage } from '@/lib/api'
-import { toPayload, type Attachment } from '@/lib/attachments'
+import { toPayload } from '@/lib/attachments'
 import { dictationSupported, spliceSpoken, useDictation } from '@/lib/dictation'
+import { cachedDraft, loadDraft, saveDraft } from '@/lib/drafts'
 import type { AttachmentPayload, ContextUsage, RunOptions, SessionSettings } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { AttachmentTray, useAttachments } from './attachment-tray'
 import { AddMenu, ContextRing, MODE_TONE, ModeMenu, ModelPill, findModel, footerButton, useModels } from './composer-controls'
 import { PromptInput, type PromptInputHandle } from './prompt-input'
 import { VoiceWave } from './voice-wave'
-
-// Rascunho por sessão: alternar entre chats não perde o que já foi digitado ou anexado.
-const drafts = new Map<string, { text: string; attachments: Attachment[] }>()
 
 /**
  * Caixa de mensagem no formato da extensão do VSCode: texto em cima e, na mesma caixa,
@@ -23,6 +21,7 @@ export function Composer({
   cwd,
   working,
   hint,
+  branch,
   settings,
   context,
   onChangeSettings,
@@ -35,6 +34,8 @@ export function Composer({
   /** Claude trabalhando: com o campo vazio, o botão vira "parar"; com texto, a mensagem entra na fila. */
   working: boolean
   hint?: string
+  /** Branch do projeto, embaixo da caixa: ali cabe o nome inteiro, que no cabeçalho ficava cortado. */
+  branch?: string | null
   settings: SessionSettings
   context: ContextUsage | null
   onChangeSettings: (patch: RunOptions) => Promise<void> | void
@@ -42,9 +43,13 @@ export function Composer({
   onSend: (text: string, attachments: AttachmentPayload[]) => Promise<void> | void
   onInterrupt?: () => Promise<void>
 }) {
-  const draft = drafts.get(sessionId)
+  // Rascunho por conversa: trocar de chat, recarregar a tela ou o Android fechar o app não perde o
+  // que foi digitado ou anexado. Sem ele na memória, vem do banco; até lá nada é gravado, para não
+  // apagar o salvo.
+  const draft = cachedDraft(sessionId)
   const [text, setText] = useState(draft?.text ?? '')
   const files = useAttachments(draft?.attachments)
+  const [loaded, setLoaded] = useState(Boolean(draft))
   const [sending, setSending] = useState(false)
   const [stopping, setStopping] = useState(false)
   const input = useRef<PromptInputHandle>(null)
@@ -76,9 +81,26 @@ export function Composer({
     dictation.cancel()
   }
 
+  const { replace } = files
   useEffect(() => {
-    drafts.set(sessionId, { text, attachments: files.items })
-  }, [sessionId, text, files.items])
+    if (loaded) return
+    let alive = true
+    void loadDraft(sessionId).then((saved) => {
+      if (!alive) return
+      if (saved) {
+        setText((typed) => typed || saved.text)
+        replace((current) => (current.length ? current : saved.attachments))
+      }
+      setLoaded(true)
+    })
+    return () => {
+      alive = false
+    }
+  }, [loaded, sessionId, replace])
+
+  useEffect(() => {
+    if (loaded) saveDraft(sessionId, { text, attachments: files.items })
+  }, [loaded, sessionId, text, files.items])
 
   const empty = !text.trim() && files.items.length === 0
   const showStop = working && empty && Boolean(onInterrupt)
@@ -121,7 +143,7 @@ export function Composer({
       <div className={cn('relative rounded-xl border bg-card shadow-xs transition-colors', tone.focus)}>
         {files.items.length > 0 && (
           <div className="border-b px-1.5">
-            <AttachmentTray items={files.items} onRemove={files.remove} />
+            <AttachmentTray items={files.items} onRemove={files.remove} onEdit={files.update} />
           </div>
         )}
         <PromptInput
@@ -207,6 +229,12 @@ export function Composer({
           }}
         />
       </div>
+      {branch && (
+        <p className="mt-1 flex items-center gap-1 px-2 font-mono text-[11px] text-muted-foreground">
+          <GitBranch className="size-3 shrink-0" />
+          <span className="truncate">{branch}</span>
+        </p>
+      )}
     </div>
   )
 }

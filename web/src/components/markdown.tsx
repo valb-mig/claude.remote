@@ -77,7 +77,7 @@ const components: Components = {
   // Imagem com URL abre em tela cheia; caminho local do PC não carrega no celular, vira etiqueta.
   img: ({ src, alt }) => {
     const url = typeof src === 'string' ? src : ''
-    if (/^(https?:|data:)/.test(url)) return <ImageThumb src={url} alt={alt} className="max-h-64 w-auto" />
+    if (/^(https?:|data:)/.test(url)) return <ImageThumb src={url} alt={alt} from="Claude" className="max-h-64 w-auto" />
     return (
       <span className="inline-flex items-center gap-1 rounded bg-muted px-1.5 font-mono text-xs">
         <ImageIcon className="size-3" />

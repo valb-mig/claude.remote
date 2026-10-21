@@ -1,6 +1,7 @@
 import { toast } from 'sonner'
 import { create } from 'zustand'
 import { ApiError, api, errorMessage } from './api'
+import { idb } from './db'
 import { useStore } from './store'
 import type { AttachmentPayload, RunOptions } from './types'
 
@@ -24,33 +25,11 @@ export type OutboxItem = {
 export const useOutbox = create<{ items: OutboxItem[] }>(() => ({ items: [] }))
 
 // ---------------------------------------------------------------------------
-// Persistência: a fila sobrevive ao app fechado. IndexedDB porque anexos passam de dezenas de MB.
-// Se o navegador recusar, a fila segue só em memória.
+// Persistência: a fila sobrevive ao app fechado (ver db.ts). Se o navegador recusar, segue só em memória.
 // ---------------------------------------------------------------------------
 
-let dbRequest: Promise<IDBDatabase> | null = null
-
-function db(): Promise<IDBDatabase> {
-  dbRequest ??= new Promise((resolve, reject) => {
-    const req = indexedDB.open('claude-remote', 1)
-    req.onupgradeneeded = () => req.result.createObjectStore('outbox', { keyPath: 'id' })
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
-  })
-  return dbRequest
-}
-
-async function idb<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequest): Promise<T> {
-  const store = (await db()).transaction('outbox', mode).objectStore('outbox')
-  return new Promise((resolve, reject) => {
-    const req = fn(store)
-    req.onsuccess = () => resolve(req.result as T)
-    req.onerror = () => reject(req.error)
-  })
-}
-
 function save(item: OutboxItem): void {
-  idb('readwrite', (s) => s.put(item)).catch(() => {})
+  idb('outbox', 'readwrite', (s) => s.put(item)).catch(() => {})
 }
 
 function update(id: string, change: Partial<OutboxItem>, persist = true): void {
@@ -61,7 +40,7 @@ function update(id: string, change: Partial<OutboxItem>, persist = true): void {
 
 function remove(id: string): void {
   useOutbox.setState((s) => ({ items: s.items.filter((i) => i.id !== id) }))
-  idb('readwrite', (s) => s.delete(id)).catch(() => {})
+  idb('outbox', 'readwrite', (s) => s.delete(id)).catch(() => {})
 }
 
 // ---------------------------------------------------------------------------
@@ -148,7 +127,7 @@ async function flush(): Promise<void> {
 }
 
 async function load(): Promise<void> {
-  const saved = await idb<OutboxItem[]>('readonly', (s) => s.getAll()).catch(() => [])
+  const saved = await idb<OutboxItem[]>('outbox', 'readonly', (s) => s.getAll()).catch(() => [])
   // Envio interrompido pelo app fechando: volta para a fila.
   const restored = saved.map((i) => (i.status === 'sending' ? { ...i, status: 'queued' as const } : i))
   useOutbox.setState((s) => {

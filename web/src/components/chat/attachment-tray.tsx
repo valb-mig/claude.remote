@@ -1,8 +1,9 @@
-import { FileText, Loader2, Paperclip, X } from 'lucide-react'
+import { FileText, Loader2, Paperclip, Pencil, X } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { formatSize, toAttachment, type Attachment } from '@/lib/attachments'
+import { ImageEditor } from './image-editor'
 
 /** Estado dos anexos de um campo de mensagem; leitura e redução das imagens acontecem aqui. */
 export function useAttachments(initial: Attachment[] = []) {
@@ -29,6 +30,10 @@ export function useAttachments(initial: Attachment[] = []) {
     add,
     remove: (id: string) => setItems((current) => current.filter((a) => a.id !== id)),
     clear: () => setItems([]),
+    /** Troca um anexo pela versão editada (marcações, recorte). */
+    update: (next: Attachment) => setItems((current) => current.map((a) => (a.id === next.id ? next : a))),
+    /** Lista inteira de uma vez (ex.: o rascunho que veio do banco); estável entre renderizações. */
+    replace: setItems,
   }
 }
 
@@ -61,13 +66,33 @@ export function AttachButton({ onFiles, busy }: { onFiles: (files: FileList) => 
   )
 }
 
-export function AttachmentTray({ items, onRemove }: { items: Attachment[]; onRemove: (id: string) => void }) {
+// Imagens que dá para marcar no editor (GIF perderia a animação).
+const EDITABLE = new Set(['image/png', 'image/jpeg', 'image/webp'])
+
+/** Anexos antes de enviar; tocar numa imagem abre o editor para marcar ou recortar. */
+export function AttachmentTray({
+  items,
+  onRemove,
+  onEdit,
+}: {
+  items: Attachment[]
+  onRemove: (id: string) => void
+  onEdit?: (next: Attachment) => void
+}) {
+  const [editing, setEditing] = useState<Attachment | null>(null)
   if (items.length === 0) return null
   return (
     <div className="flex gap-2 overflow-x-auto px-1 pt-1.5 pb-2">
       {items.map((a) => (
         <div key={a.id} className="relative shrink-0">
-          {a.thumb ? (
+          {a.thumb && onEdit && EDITABLE.has(a.mediaType) ? (
+            <button type="button" onClick={() => setEditing(a)} className="relative block" aria-label={`Marcar ${a.name}`}>
+              <img src={a.thumb} alt={a.name} className="size-16 rounded-md border object-cover" />
+              <span className="absolute bottom-1 left-1 rounded-full bg-black/60 p-1 text-white">
+                <Pencil className="size-3" />
+              </span>
+            </button>
+          ) : a.thumb ? (
             <img src={a.thumb} alt={a.name} className="size-16 rounded-md border object-cover" />
           ) : (
             <div className="flex h-16 w-32 flex-col justify-center gap-0.5 rounded-md border bg-muted/40 px-2 text-xs">
@@ -86,6 +111,7 @@ export function AttachmentTray({ items, onRemove }: { items: Attachment[]; onRem
           </button>
         </div>
       ))}
+      {onEdit && <ImageEditor attachment={editing} onOpenChange={(open) => !open && setEditing(null)} onSave={onEdit} />}
     </div>
   )
 }

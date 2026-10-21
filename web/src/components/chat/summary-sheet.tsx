@@ -1,7 +1,10 @@
 import { CheckCircle2, XCircle } from 'lucide-react'
 import { useMemo } from 'react'
+import { ImageThumb } from '@/components/image-viewer'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { imageUrl, thumbUrl } from '@/lib/api'
 import { FILE_TOOLS, TEST_COMMAND, shortPath } from '@/lib/format'
+import { cn } from '@/lib/utils'
 import type { Keyed } from './items'
 
 type Summary = {
@@ -9,11 +12,19 @@ type Summary = {
   commands: { command: string; failed: boolean }[]
   errors: { tool: string; text: string }[]
   tests: { command: string; failed: boolean }[]
+  /** Chaves das imagens, na ordem do chat: anexadas pela pessoa e devolvidas por ferramentas (prints, imagens lidas). */
+  media: { mine: string[]; claude: string[] }
 }
 
 function summarize(events: Keyed[]): Summary {
   const failed = new Map<string, string | null>()
-  for (const e of events) if (e.kind === 'tool_result') failed.set(e.toolUseId, e.isError ? e.text : null)
+  const media: Summary['media'] = { mine: [], claude: [] }
+  for (const e of events) {
+    if (e.kind === 'user' && e.images) media.mine.push(...e.images)
+    if (e.kind !== 'tool_result') continue
+    failed.set(e.toolUseId, e.isError ? e.text : null)
+    if (e.images) media.claude.push(...e.images)
+  }
 
   const files = new Map<string, number>()
   const commands: Summary['commands'] = []
@@ -33,17 +44,37 @@ function summarize(events: Keyed[]): Summary {
     commands,
     errors,
     tests: commands.filter((c) => TEST_COMMAND.test(c.command)),
+    media,
   }
 }
 
-function Section({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {
+function Section({ title, count, className, children }: { title: string; count: number; className?: string; children: React.ReactNode }) {
   return (
     <section className="space-y-2">
       <h3 className="text-sm font-medium">
         {title} <span className="text-muted-foreground">({count})</span>
       </h3>
-      {count === 0 ? <p className="text-xs text-muted-foreground">Nada por aqui.</p> : <ul className="space-y-1">{children}</ul>}
+      {count === 0 ? <p className="text-xs text-muted-foreground">Nada por aqui.</p> : <ul className={cn('space-y-1', className)}>{children}</ul>}
     </section>
+  )
+}
+
+/** Grade de miniaturas; tocar abre a imagem em tela cheia, passando de lado pelas outras do grupo. */
+function MediaGroup({ sessionId, title, from, keys }: { sessionId: string; title: string; from: string; keys: string[] }) {
+  if (keys.length === 0) return null
+  const gallery = keys.map((key) => imageUrl(sessionId, key))
+  const thumbs = keys.map((key) => thumbUrl(sessionId, key))
+  return (
+    <li className="space-y-1.5">
+      <p className="text-xs text-muted-foreground">
+        {title} ({keys.length})
+      </p>
+      <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-6">
+        {gallery.map((src, i) => (
+          <ImageThumb key={src} src={src} thumb={thumbs[i]} gallery={gallery} from={from} className="aspect-square w-full" />
+        ))}
+      </div>
+    </li>
   )
 }
 
@@ -55,11 +86,13 @@ const Status = ({ failed }: { failed: boolean }) =>
   )
 
 export function SummarySheet({
+  sessionId,
   events,
   cwd,
   open,
   onOpenChange,
 }: {
+  sessionId: string
   events: Keyed[]
   cwd?: string
   open: boolean
@@ -74,6 +107,10 @@ export function SummarySheet({
           <SheetDescription>Com base nas mensagens carregadas.</SheetDescription>
         </SheetHeader>
         <div className="space-y-6 px-4 pb-6">
+          <Section title="Mídia" count={s.media.mine.length + s.media.claude.length} className="space-y-3">
+            <MediaGroup sessionId={sessionId} title="Enviadas por você" from="Você" keys={s.media.mine} />
+            <MediaGroup sessionId={sessionId} title="Do Claude" from="Claude" keys={s.media.claude} />
+          </Section>
           <Section title="Arquivos alterados" count={s.files.length}>
             {s.files.map((f) => {
               const rel = cwd && f.path.startsWith(`${cwd}/`) ? f.path.slice(cwd.length + 1) : shortPath(f.path)

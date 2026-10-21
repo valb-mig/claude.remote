@@ -121,7 +121,31 @@ export type GitFile = {
   deletions: number | null
 }
 
-export type GitStatus = { branch: string | null; upstream: string | null; ahead: number; behind: number; files: GitFile[] }
+/** Atualizar o PC pelo celular (ver server/src/updater.ts). */
+export type UpdateStep = 'fetch' | 'switch' | 'merge' | 'install' | 'build' | 'restart'
+export type UpdateStatus = {
+  branch: string | null
+  target: string
+  head: { sha: string; subject: string }
+  incoming: { sha: string; subject: string }[]
+  behind: number
+  ahead: number
+  dirty: boolean
+  busy: string[]
+  canRestart: boolean
+  job: { step: UpdateStep; startedAt: number; error?: string; log?: string; done?: boolean } | null
+  fetchError?: string
+}
+
+export type GitStatus = {
+  branch: string | null
+  upstream: string | null
+  ahead: number
+  behind: number
+  files: GitFile[]
+  /** Página do repositório no navegador (ex.: https://github.com/dono/repo). */
+  remote: string | null
+}
 
 
 /** O que este aparelho quer receber além de perguntas, aprovações e erros, que sempre avisam. */

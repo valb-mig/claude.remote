@@ -25,10 +25,22 @@ export type GitStatus = {
   ahead: number;
   behind: number;
   files: GitFile[];
+  /** Página do repositório no navegador (ex.: https://github.com/dono/repo), pelo remoto do upstream ou o origin. */
+  remote: string | null;
 };
 
 function git(cwd: string, args: string[]) {
   return exec('git', args, { cwd, timeout: 10_000, maxBuffer: 32 * 1024 * 1024 });
+}
+
+/**
+ * Endereço do remoto como página web: "git@github.com:dono/repo.git", "ssh://git@host:22/dono/repo"
+ * e "https://usuario:token@host/dono/repo.git" viram "https://host/dono/repo", sem credenciais.
+ * Remoto em pasta local não tem página: `null`.
+ */
+export function remoteWebUrl(remote: string): string | null {
+  const m = /^(?:[\w+.-]+:\/\/)?(?:[^@/]+@)?([^/:@]+)(?::\d+)?[:/]([^/].*?)(?:\.git)?\/?$/.exec(remote.trim());
+  return m ? `https://${m[1]}/${m[2]}` : null;
 }
 
 /** `git diff --numstat -z`: "a\td\tcaminho\0" ou, em renomeação, "a\td\t\0antigo\0novo\0". */
@@ -59,7 +71,7 @@ export async function gitStatus(cwd: string): Promise<GitStatus | null> {
     return null;
   }
 
-  const status: GitStatus = { branch: null, upstream: null, ahead: 0, behind: 0, files: [] };
+  const status: GitStatus = { branch: null, upstream: null, ahead: 0, behind: 0, files: [], remote: null };
   const tokens = out.split('\0');
   for (let i = 0; i < tokens.length; i++) {
     const line = tokens[i]!;
@@ -88,10 +100,12 @@ export async function gitStatus(cwd: string): Promise<GitStatus | null> {
 
   // Linhas alteradas: staged + não staged somados por arquivo.
   const counts = new Map<string, { add: number | null; del: number | null }>();
-  const [unstaged, staged] = await Promise.all([
+  const [unstaged, staged, remote] = await Promise.all([
     git(cwd, ['diff', '--numstat', '-z']).catch(() => ({ stdout: '' })),
     git(cwd, ['diff', '--numstat', '-z', '--cached']).catch(() => ({ stdout: '' })),
+    git(cwd, ['remote', 'get-url', status.upstream?.split('/')[0] || 'origin']).catch(() => ({ stdout: '' })),
   ]);
+  status.remote = remoteWebUrl(remote.stdout);
   parseNumstat(unstaged.stdout, counts);
   parseNumstat(staged.stdout, counts);
   for (const f of status.files) {
