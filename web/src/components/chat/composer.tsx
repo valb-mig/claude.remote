@@ -143,7 +143,7 @@ export function Composer({
       <div className={cn('relative rounded-xl border bg-card shadow-xs transition-colors', tone.focus)}>
         {files.items.length > 0 && (
           <div className="border-b px-1.5">
-            <AttachmentTray items={files.items} onRemove={files.remove} />
+            <AttachmentTray items={files.items} onRemove={files.remove} onEdit={files.update} />
           </div>
         )}
         <PromptInput
