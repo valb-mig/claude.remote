@@ -111,6 +111,8 @@ export type PromptInputHandle = {
   /** Insere no cursor (com espaço antes, se colado a uma palavra) ou no início da mensagem. */
   insert: (text: string, opts?: { atStart?: boolean }) => void
   focus: () => void
+  /** Início e fim da seleção (ou a posição do cursor), mesmo com o campo sem foco. */
+  selection: () => [number, number]
 }
 
 type Props = Omit<ComponentProps<typeof Textarea>, 'value' | 'onChange'> & {
@@ -159,6 +161,7 @@ export function PromptInput({
     handleRef,
     () => ({
       focus: () => ref.current?.focus(),
+      selection: () => [ref.current?.selectionStart ?? value.length, ref.current?.selectionEnd ?? value.length],
       insert: (text, { atStart = false } = {}) => {
         const el = ref.current
         if (!el) return
