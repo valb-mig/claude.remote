@@ -19,6 +19,7 @@ import { Manager } from './manager.ts';
 import { MetaStore } from './meta.ts';
 import { Notifier } from './notifier.ts';
 import { PushService, type PushPayload, type PushPrefs, type PushSubscriptionInput, type SendOptions } from './push.ts';
+import { sessionCost } from './session-cost.ts';
 import { SystemMonitor } from './system.ts';
 import { thumbnail } from './thumbs.ts';
 import { MAX_AUDIO_BYTES, transcribe, whisperAvailable } from './transcribe.ts';
@@ -138,6 +139,9 @@ app.get<{ Params: IdParams & { toolUseId: string }; Querystring: { agentId?: str
   { schema: { querystring: { type: 'object', properties: { agentId: { type: 'string', maxLength: 64 } } } } },
   async (req) => agentTranscript(req.params.id, req.params.toolUseId, req.query.agentId),
 );
+
+/** Tokens e custo estimado da conversa inteira, subagentes incluídos (ver session-cost.ts). */
+app.get<{ Params: IdParams }>('/api/sessions/:id/cost', async (req) => sessionCost(req.params.id));
 
 app.post<{ Body: RunBody & { cwd?: string; prompt: string; title?: string; attachments?: Attachment[] } }>(
   '/api/sessions',
