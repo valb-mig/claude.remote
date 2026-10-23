@@ -64,11 +64,26 @@ function withMentions(text: string): React.ReactNode[] {
   return out
 }
 
-/** `files`: anexos que ainda não viraram @caminho no PC (mensagem na fila). */
-function UserBubble({ sessionId, text, images, files }: { sessionId: string; text: string; images?: string[]; files?: string[] }) {
+/**
+ * `files`: anexos que ainda não viraram @caminho no PC (mensagem na fila). `anchor`: chave da mensagem,
+ * para a faixa do topo saber qual mensagem já passou (ver sticky-prompt.tsx).
+ */
+function UserBubble({
+  sessionId,
+  text,
+  images,
+  files,
+  anchor,
+}: {
+  sessionId: string
+  text: string
+  images?: string[]
+  files?: string[]
+  anchor?: string
+}) {
   const { mine } = useGallery()
   return (
-    <div className="flex flex-col items-end gap-1.5">
+    <div className="flex scroll-mt-16 flex-col items-end gap-1.5" data-user-msg={anchor}>
       {images && images.length > 0 && (
         <div className="flex max-w-[85%] flex-wrap justify-end gap-1.5">
           {images.map((key) => (
@@ -208,7 +223,7 @@ function ItemView({
 }) {
   switch (item.type) {
     case 'user':
-      return <UserBubble sessionId={sessionId} text={item.text} images={item.images} />
+      return <UserBubble sessionId={sessionId} text={item.text} images={item.images} anchor={item.key} />
     case 'assistant':
       return <AssistantMessage id={`${sessionId}:${item.key}`} text={item.text} turn={turn} cwd={cwd} />
     case 'notice':

@@ -197,6 +197,7 @@ Notificações, mesmo com o app fechado, depois de ativadas na aba Computador:
 
 No chat:
 - O menu ⋮ tem **Fixar no topo**, **Renomear**, **Resumo da sessão** e **Apagar conversa**. O título é gravado no próprio Claude Code, então aparece também no `/resume` do terminal e no VSCode. Apagar remove o histórico de vez e é recusado se a conversa estiver aberta no PC.
+- **Sua mensagem fixa no topo:** quando a sua mensagem sobe e sai da tela, ela fica numa faixa logo abaixo do cabeçalho (até duas linhas), para você não perder o que pediu enquanto lê a resposta. Subindo até a resposta anterior, a faixa troca para a mensagem de lá; com a mensagem à vista, a faixa some. Mensagem curta: tocar leva até ela. Mensagem que não cabe nas duas linhas (com a ⌄): tocar abre ela inteira ali mesmo, rolando dentro da faixa até metade da tela, sem tirar você do ponto da resposta; embaixo, **Ir até a mensagem** e **Recolher**.
 - Em chats com projeto, a branch aparece inteira embaixo da caixa de mensagem, e o topo tem estes botões:
   - **GitHub** (se o projeto tem remoto): abre a página do repositório; no Android, abre o app do GitHub se estiver instalado. Em outros serviços, como o GitLab, o ícone é um link genérico.
   - **☰**: abre a árvore de pastas e arquivos, só para leitura, com o que o git ignora esmaecido. Tocar num arquivo mostra o conteúdo com números de linha, com opções de quebrar linhas e de ver Markdown formatado; imagens aparecem direto e PDFs abrem à parte.
