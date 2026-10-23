@@ -5,6 +5,7 @@ import { PageHeader } from '@/components/layout'
 import { MachineFilter } from '@/components/machine-filter'
 import { Meter, WindowMeter } from '@/components/pc-status'
 import { PushSettings } from '@/components/push-settings'
+import { SoundSettings } from '@/components/sound-settings'
 import { UpdateCard } from '@/components/update-card'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -171,6 +172,7 @@ export function ComputerPage() {
         </Card>
 
         <PushSettings />
+        <SoundSettings />
 
         <Card size="sm">
           <CardHeader>

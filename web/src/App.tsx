@@ -9,6 +9,7 @@ import { loadMachines } from '@/lib/machines'
 import { setSidebarCollapsed, useSidebar } from '@/lib/sidebar'
 import { useSplit } from '@/lib/split'
 import { startOutbox } from '@/lib/outbox'
+import { startSounds } from '@/lib/sounds'
 import { syncPush } from '@/lib/push'
 import { connect } from '@/lib/store'
 import { watchUpdates } from '@/lib/update'
@@ -31,6 +32,7 @@ export default function App() {
     const machines = setInterval(refresh, 60_000)
     connect()
     startOutbox()
+    startSounds()
     watchUpdates()
     void syncPush().catch(() => {})
     return () => clearInterval(machines)
