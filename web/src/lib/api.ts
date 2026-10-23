@@ -56,6 +56,9 @@ export const api = {
   files: (m: string, cwd: string, q: string) =>
     request<string[]>('GET', `${at(m)}/files?cwd=${encodeURIComponent(cwd)}&q=${encodeURIComponent(q)}`),
   history: (id: string, limit = 300) => request<LoggedEvent[]>('GET', `${sid(id)}/history?limit=${limit}`),
+  /** O que um subagente fez, do transcript salvo no PC; `agentId`, se já se sabe, poupa a busca. */
+  agent: (id: string, toolUseId: string, agentId?: string) =>
+    request<LoggedEvent[]>('GET', `${sid(id)}/agents/${encodeURIComponent(toolUseId)}${agentId ? `?agentId=${encodeURIComponent(agentId)}` : ''}`),
 
   create: (m: string, body: RunOptions & { cwd?: string; prompt: string; title?: string; attachments?: AttachmentPayload[] }) =>
     post<{ sessionId: string }>(`${at(m)}/sessions`, body),
@@ -105,7 +108,11 @@ export function errorMessage(err: unknown): string {
     case 'unsupported_entrypoint':
       return 'Sessões abertas no VSCode não podem ser assumidas. Feche-a no VSCode primeiro.'
     case 'session_busy':
-      return 'A sessão ainda está trabalhando. Interrompa ou aguarde para liberar.'
+      return err.details.agents
+        ? 'Ainda há subagentes trabalhando. Aguarde terminarem para liberar.'
+        : 'A sessão ainda está trabalhando. Interrompa ou aguarde para liberar.'
+    case 'agent_not_found':
+      return 'O registro deste subagente não está no PC.'
     case 'cwd_outside_roots':
       return 'Esse diretório está fora das pastas de projetos permitidas.'
     case 'attachment_too_large':

@@ -130,3 +130,10 @@
     @apply font-sans;
     }
 }
+
+/* Grafo de agentes (components/agents/agent-graph.tsx): o tracejado da ligação corre enquanto o agente trabalha. */
+@keyframes agent-flow {
+  to {
+    stroke-dashoffset: -11;
+  }
+}

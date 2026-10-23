@@ -3,6 +3,8 @@
 export type SessionState = 'starting' | 'running' | 'waiting' | 'idle' | 'exited';
 export type CatalogState = 'running' | 'waiting' | 'idle' | 'stopped';
 export type PendingKind = 'approval' | 'question';
+export type AgentTaskStatus = 'running' | 'completed' | 'failed' | 'stopped';
+export type AgentUsage = { tokens: number; toolUses: number; durationMs: number };
 
 export type Question = {
   question: string;
@@ -16,7 +18,7 @@ export type PanelEvent =
   | { kind: 'user'; text: string; images?: string[]; clientId?: string }
   | { kind: 'notice'; text: string }
   | { kind: 'assistant'; text: string; parentToolUseId?: string | null }
-  | { kind: 'thinking'; text: string }
+  | { kind: 'thinking'; text: string; parentToolUseId?: string | null }
   | { kind: 'tool_use'; id: string; name: string; input: Record<string, unknown>; parentToolUseId?: string | null }
   | { kind: 'tool_result'; toolUseId: string; isError: boolean; text: string; images?: string[] }
   | { kind: 'settings'; model?: string; effort?: string | null; permissionMode?: string }
@@ -28,6 +30,7 @@ export type PanelEvent =
       requestId: string;
       toolName: string;
       input: Record<string, unknown>;
+      toolUseId?: string;
       title?: string;
       decisionReason?: string;
       blockedPath?: string;
@@ -40,6 +43,19 @@ export type PanelEvent =
       requestId: string;
       decision: 'answered' | 'declined' | 'cancelled';
       answers?: Record<string, string>;
+    }
+  /** Novidade de um subagente (só o que mudou), ligada à chamada da ferramenta Agent que o criou. */
+  | {
+      kind: 'agent';
+      toolUseId: string;
+      agentId?: string;
+      status?: AgentTaskStatus;
+      background?: boolean;
+      activity?: string;
+      summary?: string;
+      usage?: AgentUsage;
+      result?: string;
+      error?: string;
     }
   | { kind: 'result'; ok: boolean; subtype: string; durationMs: number; costUsd?: number; turns: number }
   | { kind: 'exit'; error?: string };
@@ -57,6 +73,8 @@ export type CatalogEntry = {
   waitingFor?: string;
   pcKind?: 'interactive' | 'background';
   pending?: { requestId: string; kind: PendingKind }[];
+  /** Subagentes trabalhando agora (só sessões do painel). */
+  agents?: number;
   pinned?: boolean;
   /** Máquina da conversa, posta pelo app ao juntar as de todas (ver machines.ts); `''` é a desta página. */
   machine?: string;

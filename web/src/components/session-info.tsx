@@ -1,4 +1,4 @@
-import { Monitor, Pin, Server, Smartphone } from 'lucide-react'
+import { Bot, Monitor, Pin, Server, Smartphone } from 'lucide-react'
 import { StateBadge } from '@/components/state-badge'
 import { projectName, relativeTime } from '@/lib/format'
 import { HOME, useMachines } from '@/lib/machines'
@@ -32,6 +32,12 @@ export function SessionInfo({ s }: { s: CatalogEntry }) {
       </div>
       <div className="flex shrink-0 flex-col items-end gap-1">
         {s.state !== 'stopped' && <StateBadge state={s.state} waitingFor={s.waitingFor} />}
+        {s.agents ? (
+          <span className="flex items-center gap-1 text-[11px] text-sky-700 dark:text-sky-300">
+            <Bot className="size-3" />
+            {s.agents} {s.agents === 1 ? 'subagente' : 'subagentes'}
+          </span>
+        ) : null}
         {s.owner && (
           <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
             {s.owner === 'pc' ? <Monitor className="size-3" /> : <Smartphone className="size-3" />}

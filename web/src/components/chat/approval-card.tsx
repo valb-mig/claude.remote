@@ -1,4 +1,4 @@
-import { Check, ShieldAlert, X } from 'lucide-react'
+import { Bot, Check, ShieldAlert, X } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -16,15 +16,16 @@ const RESOLVED = {
   cancelled: { icon: X, label: 'Cancelado' },
 } as const
 
-export function ApprovalCard({ sessionId, req, resolution, actionable }: Props) {
+export function ApprovalCard({ sessionId, req, resolution, actionable, agent }: Props) {
   const [busy, setBusy] = useState<'allow' | 'deny' | 'always' | null>(null)
 
   if (resolution) {
     const { icon: Icon, label } = RESOLVED[resolution]
     return (
-      <div className="flex items-center gap-2 px-2 text-xs text-muted-foreground">
-        <Icon className="size-3.5" />
+      <div className="flex min-w-0 items-center gap-2 px-2 text-xs text-muted-foreground">
+        <Icon className="size-3.5 shrink-0" />
         {label}: {req.toolName}
+        {agent && <span className="truncate">· subagente “{agent}”</span>}
       </div>
     )
   }
@@ -47,6 +48,12 @@ export function ApprovalCard({ sessionId, req, resolution, actionable }: Props) 
           <ShieldAlert className="size-4 text-amber-600 dark:text-amber-400" />
           {req.title ?? `Permitir ${req.toolName}?`}
         </CardTitle>
+        {agent && (
+          <CardDescription className="flex min-w-0 items-center gap-1.5">
+            <Bot className="size-3.5 shrink-0" />
+            <span className="truncate">Pedido do subagente “{agent}”</span>
+          </CardDescription>
+        )}
         {req.decisionReason && <CardDescription>{req.decisionReason}</CardDescription>}
       </CardHeader>
       <CardContent className="space-y-1.5">

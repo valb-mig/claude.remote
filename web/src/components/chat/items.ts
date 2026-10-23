@@ -1,12 +1,19 @@
 import type { PanelEvent } from '@/lib/types'
 
 type Of<K extends PanelEvent['kind']> = Extract<PanelEvent, { kind: K }>
-export type Keyed = PanelEvent & { key: string }
+/** `ts`: quando chegou ao vivo (o histórico salvo não tem, vem 0). */
+export type Keyed = PanelEvent & { key: string; ts?: number }
+
+/** Tudo o que se sabe do subagente pelos eventos `agent`, já juntado. */
+export type AgentTask = Omit<Of<'agent'>, 'kind' | 'toolUseId'>
 
 export type ActivityEntry =
-  | { kind: 'tool'; key: string; use: Of<'tool_use'>; result?: Of<'tool_result'> }
+  /** `inner` e `task` só nas chamadas que criam subagentes (Agent/Task): o que ele fez fica dentro dela. */
+  | { kind: 'tool'; key: string; use: Of<'tool_use'>; result?: Of<'tool_result'>; at?: number; inner?: ActivityEntry[]; task?: AgentTask }
   | { kind: 'thinking'; key: string; text: string }
   | { kind: 'subtext'; key: string; text: string }
+
+export const AGENT_TOOLS = new Set(['Agent', 'Task'])
 
 /** Unidade de renderização do chat; ações consecutivas viram um bloco de atividade. */
 export type Item =
@@ -14,7 +21,8 @@ export type Item =
   | { type: 'assistant'; key: string; text: string }
   | { type: 'notice'; key: string; text: string }
   | { type: 'activity'; key: string; entries: ActivityEntry[] }
-  | { type: 'approval'; key: string; req: Of<'approval_request'>; resolution?: Of<'approval_resolved'>['decision'] }
+  /** `agent`: descrição do subagente que pediu (aprovações de dentro de um subagente). */
+  | { type: 'approval'; key: string; req: Of<'approval_request'>; resolution?: Of<'approval_resolved'>['decision']; agent?: string }
   | { type: 'question'; key: string; req: Of<'question_request'>; resolution?: Of<'question_resolved'> }
   | { type: 'result'; key: string; result: Of<'result'> }
   | { type: 'exit'; key: string; error?: string }
@@ -24,10 +32,17 @@ export function buildItems(events: Keyed[]): Item[] {
   const results = new Map<string, Of<'tool_result'>>()
   const approvals = new Map<string, Of<'approval_resolved'>['decision']>()
   const questions = new Map<string, Of<'question_resolved'>>()
+  const tasks = new Map<string, AgentTask>()
+  const uses = new Map<string, Of<'tool_use'>>()
   for (const e of events) {
     if (e.kind === 'tool_result') results.set(e.toolUseId, e)
     if (e.kind === 'approval_resolved') approvals.set(e.requestId, e.decision)
     if (e.kind === 'question_resolved') questions.set(e.requestId, e)
+    if (e.kind === 'tool_use') uses.set(e.id, e)
+    if (e.kind === 'agent') {
+      const { kind: _, toolUseId, ...patch } = e
+      tasks.set(toolUseId, { ...tasks.get(toolUseId), ...patch })
+    }
   }
 
   const items: Item[] = []
@@ -44,16 +59,31 @@ export function buildItems(events: Keyed[]): Item[] {
     items.push(item)
   }
 
+  // O que cada subagente faz vai para dentro da chamada que o criou, não para o meio do chat.
+  const agents = new Map<string, Extract<ActivityEntry, { kind: 'tool' }>>()
+  const place = (entry: ActivityEntry, parent: string | null | undefined) => {
+    const agent = parent ? agents.get(parent) : undefined
+    if (agent) agent.inner!.push(entry)
+    else addEntry(entry, entry.key)
+  }
+
   for (const e of events) {
     switch (e.kind) {
-      case 'tool_use':
-        addEntry({ kind: 'tool', key: e.key, use: e, result: results.get(e.id) }, e.key)
+      case 'tool_use': {
+        const entry: ActivityEntry = { kind: 'tool', key: e.key, use: e, result: results.get(e.id), at: e.ts || undefined }
+        if (AGENT_TOOLS.has(e.name)) {
+          entry.inner = []
+          entry.task = tasks.get(e.id)
+          agents.set(e.id, entry)
+        }
+        place(entry, e.parentToolUseId)
         break
+      }
       case 'thinking':
-        addEntry({ kind: 'thinking', key: e.key, text: e.text }, e.key)
+        place({ kind: 'thinking', key: e.key, text: e.text }, e.parentToolUseId)
         break
       case 'assistant':
-        if (e.parentToolUseId) addEntry({ kind: 'subtext', key: e.key, text: e.text }, e.key)
+        if (e.parentToolUseId) place({ kind: 'subtext', key: e.key, text: e.text }, e.parentToolUseId)
         else push({ type: 'assistant', key: e.key, text: e.text })
         break
       case 'user':
@@ -62,9 +92,13 @@ export function buildItems(events: Keyed[]): Item[] {
       case 'notice':
         push({ type: 'notice', key: e.key, text: e.text })
         break
-      case 'approval_request':
-        push({ type: 'approval', key: e.key, req: e, resolution: approvals.get(e.requestId) })
+      case 'approval_request': {
+        const parent = e.toolUseId ? uses.get(e.toolUseId)?.parentToolUseId : undefined
+        const agent = parent ? uses.get(parent) : undefined
+        const name = agent && (String(agent.input.description ?? '') || String(agent.input.subagent_type ?? ''))
+        push({ type: 'approval', key: e.key, req: e, resolution: approvals.get(e.requestId), agent: name || undefined })
         break
+      }
       case 'question_request':
         push({ type: 'question', key: e.key, req: e, resolution: questions.get(e.requestId) })
         break
