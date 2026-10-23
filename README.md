@@ -99,6 +99,12 @@ O painel passa a abrir como um app e avisa quando o Claude precisa de você.
 
 O servidor confere o login do Tailscale de quem acessa (o `tailscale serve` informa no cabeçalho `Tailscale-User-Login`). Por padrão, só entra o dono do PC na tailnet. Para liberar outra conta, use `ALLOWED_LOGINS`: ela substitui o padrão, então inclua o seu login também.
 
+### Várias máquinas
+
+Instale o Claude Remote em outra máquina sua da mesma tailnet (o mesmo login do Tailscale) e ela aparece sozinha no app, em até um minuto: cada servidor pergunta ao Tailscale quais máquinas do dono respondem como Claude Remote. Não há central: o app, instalado a partir de qualquer uma, fala direto com todas, e cada servidor aceita o app vindo de outra máquina sua (só do mesmo dono, nunca de outro endereço). Com uma máquina desligada, as outras seguem funcionando.
+
+As notificações passam pela máquina de onde o app foi instalado: o celular só se inscreve nela, e as outras repassam os avisos para ela. Com ela desligada, os avisos das outras não chegam.
+
 ### Configuração
 
 | Variável | Padrão | Para quê |
@@ -109,6 +115,8 @@ O servidor confere o login do Tailscale de quem acessa (o `tailscale serve` info
 | `EXTRA_ORIGINS` | (nenhuma) | Origens extras aceitas do navegador, separadas por `,` |
 | `UPLOADS_DIR` | `~/.cache/claude-remote/uploads` | Onde ficam os anexos enviados pelo celular |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Configuração e histórico do Claude Code, se você usa outra pasta |
+| `MACHINE_NAME` | o nome do sistema | Nome desta máquina no app, quando há várias |
+| `EXTRA_MACHINES` | (nenhuma) | Outras máquinas além das achadas no Tailscale (ex.: uma instância de teste, `http://127.0.0.1:7338`), separadas por `,` |
 
 No serviço, defina com `systemctl --user edit claude-remote` e depois `systemctl --user restart claude-remote`:
 
@@ -148,6 +156,11 @@ O que dá para fazer:
 - **Nova** (na home) pergunta só onde trabalhar, sem projeto (`~`) ou um projeto, e abre um chat vazio. A primeira mensagem, digitada na própria caixa do chat com modelo, modo, `/`, `@` e anexos, cria a sessão.
 - **Projetos:** escolher um diretório do PC para iniciar uma sessão nova.
 - **Computador:** detalhes do sistema (carga, swap, processos do Claude e memória deles, tempo ligado), todas as janelas de uso, inclusive por modelo, a conexão, as notificações e o tema.
+
+Com várias máquinas (ver [Várias máquinas](#várias-máquinas)):
+- As conversas de todas aparecem juntas, cada uma com o nome da máquina. No topo das Sessões, o filtro **Todas · máquina 1 · máquina 2** mostra só as de uma; a bolinha de cada máquina diz se a conexão com ela está de pé.
+- O cabeçalho do chat diz a máquina, e tudo da conversa (mensagens, arquivos, git, `@`, comandos) vai para ela. Dá para pôr conversas de máquinas diferentes lado a lado.
+- **Nova** pergunta primeiro a máquina e depois o projeto dela. **Projetos** e **Computador** mostram os da máquina escolhida no filtro.
 
 O app se ajusta à tela:
 - **Celular em pé:** uma tela por vez, com as abas embaixo.
@@ -297,6 +310,8 @@ node scripts/poc-client.ts release <id>          # devolver ao terminal
 | POST | `/api/push/subscribe` | `{subscription, prefs: {done, pc}}`: inscreve o aparelho ou muda as preferências (guardado em `~/.local/state/claude-remote/push.json`) |
 | POST | `/api/push/unsubscribe` | `{endpoint}`: remove o aparelho |
 | POST | `/api/push/test` | `{endpoint}`: manda um aviso de teste a esse aparelho |
+| POST | `/api/push/relay` | `{payload, opts}`: aviso repassado por outra máquina sua, entregue aos aparelhos inscritos aqui (não repassa de novo) |
+| GET | `/api/machines` | Nome desta máquina e as outras suas com o Claude Remote (`{name, machines: [{id, name, base}]}`) |
 | GET | `/api/update` | Branch e commit do PC, novidades da `main` do GitHub, bloqueios e o andamento de uma atualização |
 | POST | `/api/update` | Atualiza: troca para a `main`, avança, `pnpm install`, `pnpm build` e reinicia (`409` com mudança local, `main` divergente, conversa trabalhando ou já em dia) |
 | POST | `/api/update/restart` | Reinício que ficou adiado porque uma conversa começou a trabalhar durante a compilação |
