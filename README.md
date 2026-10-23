@@ -116,6 +116,8 @@ As notificações passam pela máquina de onde o app foi instalado: o celular s�
 | `UPLOADS_DIR` | `~/.cache/claude-remote/uploads` | Onde ficam os anexos enviados pelo celular |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Configuração e histórico do Claude Code, se você usa outra pasta |
 | `MACHINE_NAME` | o nome do sistema | Nome desta máquina no app, quando há várias |
+| `WHISPER_CLI` | `~/.local/share/claude-remote/whisper/whisper.cpp/build/bin/whisper-cli` | Binário do Whisper para o ditado no Firefox (ver [Ditado no Firefox](#ditado-no-firefox-whisper)) |
+| `WHISPER_MODEL` | `~/.local/share/claude-remote/whisper/models/ggml-small-q5_1.bin` | Modelo do Whisper |
 | `EXTRA_MACHINES` | (nenhuma) | Outras máquinas além das achadas no Tailscale (ex.: uma instância de teste, `http://127.0.0.1:7338`), separadas por `,` |
 
 No serviço, defina com `systemctl --user edit claude-remote` e depois `systemctl --user restart claude-remote`:
@@ -124,6 +126,16 @@ No serviço, defina com `systemctl --user edit claude-remote` e depois `systemct
 [Service]
 Environment=PROJECT_ROOTS=%h/Projects:%h/code
 ```
+
+### Ditado no Firefox (Whisper)
+
+O ditado do Chrome e do celular usa o reconhecimento de voz do navegador, e o Firefox não tem. Para ditar pelo Firefox, instale o Whisper no PC, que transcreve ali mesmo, sem internet e sem o áudio sair do PC:
+
+```sh
+deploy/install-whisper.sh        # compila o whisper.cpp e baixa o modelo small-q5_1 (~190 MB)
+```
+
+Precisa de git, cmake e um compilador de C++. O servidor acha o Whisper sozinho, sem reiniciar, e o microfone passa a aparecer no Firefox. O modelo `small-q5_1` vai bem em português e usa uns 400 MB de memória só enquanto transcreve. Com mais memória sobrando, o `large-v3-turbo-q5_0` acerta mais (`deploy/install-whisper.sh large-v3-turbo-q5_0` e `WHISPER_MODEL` apontando para ele).
 
 ### Problemas comuns
 
@@ -215,6 +227,8 @@ No chat:
     - **Lista**, na ordem em que foram chamados, com tipo, ferramentas usadas, tempo e o que cada um está fazendo.
   - Tocar num subagente (no chat, no grafo ou na lista) abre o painel dele: o que está fazendo agora (com um resumo do andamento a cada ~30 s), quem o chamou e quem ele chamou, o pedido que recebeu, o passo a passo e o relatório final. Em conversas do histórico ou abertas no PC, o passo a passo vem do registro salvo no PC.
   - Subagentes em segundo plano continuam depois do fim da resposta: enquanto trabalham, a conversa segue como **Executando**, com "N subagentes" na lista de conversas, e **Liberar para o PC** espera eles terminarem.
+- **Em segundo plano:** quando o Claude deixa algo rodando e encerra a resposta (um **Monitor** vigiando um build, um comando com `run_in_background`, um subagente, um workflow), a conversa não aparece como concluída: o cabeçalho e a lista de conversas mostram **Em segundo plano**, com a tarefa. No fim da conversa, o cartão **Em segundo plano** diz o que está rodando, o comando e há quanto tempo, e explica que o Claude volta sozinho quando cada uma terminar (num monitor, a cada novidade). **Ver saída** mostra o que o comando ou o monitor escreveu, atualizando sozinha, e **Parar** encerra a tarefa (o Claude recebe o aviso). O som e a notificação de "terminou" só vêm quando não sobra nada em segundo plano, e não a cada passo de um monitor.
+- Durante a resposta, a linha embaixo do chat diz o que está rodando e há quanto tempo (ex.: "Rodando Bash · npm run build · 1min 12s"), em vez de só "Trabalhando…".
 - Numa conversa parada, modelo, esforço e modo escolhidos na caixa valem quando ela for retomada.
 - Sem internet, ou com o PC fora de alcance, a mensagem não se perde, como no WhatsApp: aparece com um relógio e **Aguardando conexão** e é enviada sozinha, na ordem, assim que a conexão volta, mesmo que o app tenha sido fechado nesse meio-tempo. Se não der para entregar (por exemplo, a sessão foi aberta no PC), ela fica marcada como **Não enviada**, com **Tentar de novo** e **Descartar**. Um reenvio nunca repete o turno no Claude.
 - Imagens que o Claude devolve (prints, imagens lidas) e as que você envia aparecem como miniatura, reduzida no PC (até 512 px) para pesar pouco no 4G; o original só é baixado ao ampliar. Tocar abre a imagem ampliada por cima do chat, com quem mandou e a posição no topo ("Claude · 3 / 8"):
@@ -223,7 +237,7 @@ No chat:
   - tocar fora da imagem fecha, e o botão de abrir leva ao arquivo original.
 - O voltar do celular fecha o que está aberto por cima (menu, painel, diálogo, imagem) antes de sair da tela.
 
-As ações do Claude aparecem num bloco separado das mensagens. As aprovações e as perguntas com opções aparecem como cartões, e o botão de lista no topo abre um resumo da sessão: mídia (as imagens numa grade, separadas em suas e do Claude), arquivos alterados, testes, erros e comandos. Para ditar, toque no microfone da caixa de mensagem: o texto aparece enquanto você fala, onde estava o cursor, e as ondas da voz aparecem na linha de baixo. Pausas para pensar não desligam o microfone: o ditado termina ao tocar de novo, ao enviar, ao começar a digitar, ao sair do app ou depois de 1 minuto sem fala. É o reconhecimento de voz do navegador (no Android, o mesmo do Google que o Gboard usa), então precisa de internet e da permissão de microfone na primeira vez. Nada é enviado sozinho: revise e toque em enviar. O ditado do próprio Gboard também funciona: Enter quebra linha, e o envio é pelo botão.
+As ações do Claude aparecem num bloco separado das mensagens. As aprovações e as perguntas com opções aparecem como cartões, e o botão de lista no topo abre um resumo da sessão: mídia (as imagens numa grade, separadas em suas e do Claude), arquivos alterados, testes, erros e comandos. Para ditar, toque no microfone da caixa de mensagem: o texto aparece enquanto você fala, onde estava o cursor, e as ondas da voz aparecem na linha de baixo. No Firefox, com o Whisper instalado no PC (ver [Ditado no Firefox](#ditado-no-firefox-whisper)), o microfone grava: toque de novo para parar, e o texto aparece de uma vez alguns segundos depois ("Transcrevendo no PC…"), sem sair do PC; gravação só de silêncio nem é enviada. Pausas para pensar não desligam o microfone: o ditado termina ao tocar de novo, ao enviar, ao começar a digitar, ao sair do app ou depois de 1 minuto sem fala. É o reconhecimento de voz do navegador (no Android, o mesmo do Google que o Gboard usa), então precisa de internet e da permissão de microfone na primeira vez. Nada é enviado sozinho: revise e toque em enviar. O ditado do próprio Gboard também funciona: Enter quebra linha, e o envio é pelo botão.
 
 No campo de mensagem, tanto no chat quanto em "Nova sessão":
 - **`/`** no início lista os comandos e skills do projeto: as suas skills e as de plugins primeiro, depois as internas. Comandos que só funcionam como tela no terminal (`/config`, `/mcp`, `/agents`…) ficam de fora.
@@ -293,6 +307,10 @@ node scripts/poc-client.ts release <id>          # devolver ao terminal
 | GET | `/api/sessions` | Catálogo: salvas + vivas no PC + do painel, com `owner` e `state` |
 | GET | `/api/projects` | Diretórios disponíveis para sessões novas |
 | GET | `/api/sessions/:id/history` | Histórico salvo, normalizado |
+| GET | `/api/sessions/:id/tasks/:taskId/output` | Fim da saída (até 8 KiB) de um comando ou monitor em segundo plano da conversa aberta no painel |
+| POST | `/api/sessions/:id/tasks/:taskId/stop` | Para uma tarefa em segundo plano; o Claude recebe o aviso |
+| GET | `/api/transcribe` | `{available}`: se o Whisper está instalado neste PC |
+| POST | `/api/transcribe` | `{audio}` (WAV em base64, até ~10 min): transcreve em português com o Whisper (`503 whisper_unavailable`) |
 | GET | `/api/sessions/:id/agents/:toolUseId` | O que o subagente criado por essa chamada da ferramenta Agent fez, do transcript salvo (`?agentId=` poupa a busca; `404 agent_not_found`) |
 | POST | `/api/sessions` | Nova sessão `{cwd?, prompt, attachments?, model?, effort?, permissionMode?}`; sem `cwd`, abre em `~` |
 | POST | `/api/sessions/:id/open` | Retomar no painel (`409 live_on_pc` se estiver aberta no PC) |
