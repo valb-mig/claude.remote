@@ -56,10 +56,13 @@ self.addEventListener('push', (event) => {
 
 async function show(p: PushPayload): Promise<void> {
   const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+  const visible = windows.filter((c) => c.visibilityState === 'visible')
   // A conversa já está na tela: o aviso só atrapalharia.
-  if (windows.some((c) => c.visibilityState === 'visible' && new URL(c.url).pathname === p.url)) return
+  if (visible.some((c) => new URL(c.url).pathname === p.url)) return
   const options: ShowOptions = {
     body: p.body,
+    // Com o app na tela, o som é o dele (web/src/lib/sounds.ts): o aviso chega sem tocar de novo.
+    silent: visible.length > 0,
     // Uma por conversa: a nova substitui a anterior e vibra de novo.
     tag: p.tag,
     renotify: true,
