@@ -1,9 +1,9 @@
-import { ArrowUp, GitBranch, Mic, Slash, Square } from 'lucide-react'
+import { ArrowUp, GitBranch, Loader2, Mic, Slash, Square } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { errorMessage } from '@/lib/api'
 import { toPayload } from '@/lib/attachments'
-import { dictationSupported, spliceSpoken, useDictation } from '@/lib/dictation'
+import { spliceSpoken, useDictation, useDictationSupport } from '@/lib/dictation'
 import { cachedDraft, loadDraft, saveDraft } from '@/lib/drafts'
 import type { AttachmentPayload, ContextUsage, RunOptions, SessionSettings } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -58,10 +58,20 @@ export function Composer({
 
   // Ditado: o que é ouvido entra onde estava o cursor e vai sendo corrigido enquanto se fala.
   const spot = useRef<{ before: string; after: string } | null>(null)
+  const canDictate = useDictationSupport()
   const dictation = useDictation({
     onText: (spoken) => {
       const at = spot.current
       if (at) setText(spliceSpoken(at.before, spoken, at.after))
+    },
+    // Do Whisper, segundos depois de parar: no lugar do cursor se o texto não mudou; se a pessoa
+    // digitou nesse meio-tempo, no fim, sem apagar nada.
+    onTranscript: (spoken) => {
+      // Lido agora: o fim do ditado limpa `spot` antes de o React rodar a função abaixo.
+      const at = spot.current
+      setText((current) =>
+        at && current === at.before + at.after ? spliceSpoken(at.before, spoken, at.after) : spliceSpoken(current, spoken, ''),
+      )
     },
     onEnd: () => (spot.current = null),
     onError: (message) => toast.error(message),
@@ -75,8 +85,10 @@ export function Composer({
     dictation.toggle()
   }
 
-  // Digitar ou enviar durante o ditado desliga o microfone e fica com o texto como está.
+  // Digitar ou enviar durante o ditado desliga o microfone e fica com o texto como está. Já
+  // transcrevendo, o texto do Whisper ainda chega (ver `onTranscript`).
   function stopDictation() {
+    if (dictation.transcribing) return
     spot.current = null
     dictation.cancel()
   }
@@ -158,13 +170,26 @@ export function Composer({
           onSubmitShortcut={submit}
           anchored={false}
           rows={1}
-          placeholder={dictation.listening ? 'Pode falar…' : working ? 'Enfileirar outra mensagem…' : 'Peça algo ao Claude…'}
+          placeholder={
+            dictation.listening
+              ? dictation.live
+                ? 'Pode falar…'
+                : 'Gravando… toque no microfone para transcrever'
+              : working
+                ? 'Enfileirar outra mensagem…'
+                : 'Peça algo ao Claude…'
+          }
           className="max-h-48 min-h-11 resize-none rounded-none border-0 bg-transparent px-3.5 py-2.5 text-base shadow-none focus-visible:border-0 focus-visible:ring-0 md:text-sm dark:bg-transparent"
         />
         <div className="flex items-center gap-0.5 px-1.5 pb-1.5">
           {/* Durante o ditado, as ondas da voz ocupam a linha no lugar dos controles. */}
           {dictation.listening ? (
             <VoiceWave activity={text} speaking={dictation.speaking} className="mx-2 h-6 min-w-0 flex-1 text-red-500" />
+          ) : dictation.transcribing ? (
+            <div className="mx-2 flex h-6 min-w-0 flex-1 items-center gap-2 text-xs text-muted-foreground" role="status">
+              <Loader2 className="size-3.5 shrink-0 animate-spin" />
+              <span className="truncate">Transcrevendo no PC…</span>
+            </div>
           ) : (
             <>
               <AddMenu onAttach={() => fileInput.current?.click()} onMention={cwd ? () => input.current?.insert('@') : undefined} />
@@ -182,15 +207,20 @@ export function Composer({
               <ModeMenu settings={settings} efforts={efforts} onChange={(patch) => void guard(() => onChangeSettings(patch))} />
             </>
           )}
-          {dictationSupported && (
+          {canDictate && (
             <button
               type="button"
               onClick={dictate}
+              disabled={dictation.transcribing}
               className={cn(footerButton, 'px-0', dictation.listening && 'bg-red-500/15 text-red-500 hover:bg-red-500/15 hover:text-red-500')}
-              aria-label={dictation.listening ? 'Parar ditado' : 'Ditar'}
+              aria-label={dictation.transcribing ? 'Transcrevendo' : dictation.listening ? (dictation.live ? 'Parar ditado' : 'Parar e transcrever') : 'Ditar'}
               aria-pressed={dictation.listening}
             >
-              <Mic className={cn('size-4', dictation.listening && 'animate-pulse')} />
+              {dictation.transcribing ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Mic className={cn('size-4', dictation.listening && 'animate-pulse')} />
+              )}
             </button>
           )}
           {showStop ? (

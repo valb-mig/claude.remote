@@ -1,5 +1,7 @@
 import { CircleAlert, Clock, FilePen, FileText, Folder, Info, Link2, Loader2, Pause, Play, SquareTerminal } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { toolLine } from '@/components/agents/model'
+import { useNow } from '@/components/agents/status'
 import { ImageThumb } from '@/components/image-viewer'
 import { Markdown } from '@/components/markdown'
 import { ReadingLine } from '@/components/reading-line'
@@ -10,13 +12,15 @@ import { discard, retryItem, type OutboxItem } from '@/lib/outbox'
 import { machineOf } from '@/lib/machines'
 import { speechSupported, stopSpeakingIn, toggleSpeech, useSpeech } from '@/lib/speech'
 import { useStore } from '@/lib/store'
+import type { BackgroundTask, PanelEvent } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { Activity } from './activity'
 import { ApprovalCard } from './approval-card'
+import { BackgroundTasks } from './background-tasks'
 import { GalleryContext, galleryOf, useGallery } from './gallery'
 import type { Item } from './items'
 import { QuestionCard } from './question-card'
-import { turnsOf, type TurnInfo } from './turn'
+import { turnsOf, type ToolEntry, type TurnInfo } from './turn'
 import { TurnSheet, type TurnSection } from './turn-sheet'
 
 function Divider({ children, className }: { children: React.ReactNode; className?: string }) {
@@ -234,6 +238,30 @@ function ItemView({
   }
 }
 
+/**
+ * "Trabalhando…" com o que está rodando agora: a ferramenta em uso no turno (um comando longo, um
+ * subagente) e há quanto tempo, para não parecer travado.
+ */
+function WorkingLine({ items }: { items: Item[] }) {
+  const last = items.at(-1)
+  const running = last?.type === 'activity' ? last.entries.findLast((e): e is ToolEntry => e.kind === 'tool' && !e.result) : undefined
+  const now = useNow(Boolean(running?.at))
+  return (
+    <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground" role="status">
+      <Loader2 className="size-3.5 shrink-0 animate-spin" />
+      {running ? (
+        <>
+          <span className="shrink-0">Rodando</span>
+          <span className="min-w-0 truncate font-mono text-[11px]">{toolLine(running)}</span>
+          {running.at && <span className="shrink-0 tabular-nums">{duration(Math.max(0, now - running.at))}</span>}
+        </>
+      ) : (
+        'Trabalhando…'
+      )}
+    </div>
+  )
+}
+
 export function MessageList({
   items,
   queued,
@@ -241,6 +269,8 @@ export function MessageList({
   actionable,
   streaming,
   working,
+  background,
+  uses,
   cwd,
 }: {
   items: Item[]
@@ -251,6 +281,9 @@ export function MessageList({
   actionable: boolean
   streaming: string
   working: boolean
+  /** O que ficou rodando em segundo plano depois da resposta (monitores, comandos, subagentes). */
+  background: BackgroundTask[]
+  uses: Map<string, Extract<PanelEvent, { kind: 'tool_use' }>>
   /** Pasta do projeto: os arquivos alterados aparecem com o caminho a partir dela. */
   cwd?: string
 }) {
@@ -269,12 +302,9 @@ export function MessageList({
           <QueuedBubble key={item.id} item={item} sessionId={sessionId} />
         ))}
         {streaming && <Markdown text={streaming} className="opacity-90" />}
-        {working && !streaming && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="size-3.5 animate-spin" />
-            Trabalhando…
-          </div>
-        )}
+        {working && !streaming && <WorkingLine items={items} />}
+        {/* Fica na tela também durante os turnos: num monitor, cada novidade acorda o Claude. */}
+        <BackgroundTasks sessionId={sessionId} tasks={background} uses={uses} actionable={actionable} />
       </div>
     </GalleryContext>
   )

@@ -149,7 +149,8 @@ export function startSounds(): void {
       if (c.state === 'running' && was !== 'running') since.set(c.sessionId, now)
       if (!prev.catalogLoaded || was === undefined || was === c.state) continue
       if (c.state === 'waiting') attention = true
-      else if (was === 'running' && c.state === 'idle') {
+      // Com algo em segundo plano (monitor, comando), o Claude ainda vai voltar: não terminou.
+      else if (was === 'running' && c.state === 'idle' && !c.tasks?.length) {
         const from = since.get(c.sessionId)
         if (c.owner !== 'pc' || (from !== undefined && now - from >= PC_DONE_MIN_MS)) done = true
       }
