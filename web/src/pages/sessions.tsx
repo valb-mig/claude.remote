@@ -1,4 +1,4 @@
-import { Columns2, Plus } from 'lucide-react'
+import { Columns2, PanelLeftClose, Plus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Link, useLocation } from 'wouter'
@@ -83,7 +83,8 @@ function Group({ title, sessions, onMenu }: { title: string; sessions: CatalogEn
   )
 }
 
-export function SessionsPage() {
+/** `onCollapse`: na barra lateral do PC, recolhe a lista na alça (ver sidebar-rail.tsx). */
+export function SessionsPage({ onCollapse }: { onCollapse?: () => void } = {}) {
   const all = useStore((s) => s.catalog)
   const loaded = useStore((s) => s.catalogLoaded)
   const filter = useMachineFilter()
@@ -119,9 +120,16 @@ export function SessionsPage() {
       <PageHeader
         title="Sessões"
         action={
-          <Button size="sm" onClick={() => setPicker(true)}>
-            <Plus /> Nova
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button size="sm" onClick={() => setPicker(true)}>
+              <Plus /> Nova
+            </Button>
+            {onCollapse && (
+              <Button variant="ghost" size="icon-sm" onClick={onCollapse} aria-label="Recolher a lista de conversas" title="Recolher a lista">
+                <PanelLeftClose />
+              </Button>
+            )}
+          </div>
         }
       />
       <MachineFilter className="px-4 pb-3" />

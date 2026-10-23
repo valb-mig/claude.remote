@@ -1,0 +1,181 @@
+import { FolderGit2, MessagesSquare, Monitor, OctagonAlert, PanelLeftOpen, Plus, TriangleAlert } from 'lucide-react'
+import { Link, useLocation } from 'wouter'
+import { severityOf } from '@/components/pc-status'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { bytes, resetTime } from '@/lib/format'
+import { HOME, useMachineFilter, useMachines } from '@/lib/machines'
+import { setSidebarCollapsed } from '@/lib/sidebar'
+import { useStore } from '@/lib/store'
+import type { UsageWindow } from '@/lib/types'
+import { cn } from '@/lib/utils'
+
+// Mesmas cores do quadro do PC (pc-status.tsx): padrão → alerta → crítico, trilho no tom mais claro.
+const RING = {
+  normal: { stroke: 'stroke-sky-500', track: 'stroke-sky-500/20' },
+  warning: { stroke: 'stroke-[#fab219]', track: 'stroke-[#fab219]/25' },
+  critical: { stroke: 'stroke-[#d03b3b]', track: 'stroke-[#d03b3b]/25' },
+}
+const R = 15
+const CIRCUMFERENCE = 2 * Math.PI * R
+
+/** Anel de progresso com a porcentagem no meio; alerta e crítico vêm com ícone, para não depender só da cor. */
+function Ring({ label, percent, tip }: { label: string; percent: number | null; tip: string }) {
+  const known = percent !== null
+  const level = known ? severityOf(percent) : 'normal'
+  const Icon = level === 'critical' ? OctagonAlert : level === 'warning' ? TriangleAlert : null
+  const fill = known ? Math.min(100, Math.max(0, percent)) : 0
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Link
+          href="/computador"
+          aria-label={tip}
+          className="flex w-14 flex-col items-center gap-0.5 rounded-lg py-1 hover:bg-muted/60"
+        >
+          <span className="relative size-10">
+            <svg viewBox="0 0 36 36" className="size-10 -rotate-90" aria-hidden>
+              <circle cx="18" cy="18" r={R} fill="none" strokeWidth="3.5" className={known ? RING[level].track : 'stroke-muted'} />
+              {known && (
+                <circle
+                  cx="18"
+                  cy="18"
+                  r={R}
+                  fill="none"
+                  strokeWidth="3.5"
+                  strokeLinecap="round"
+                  strokeDasharray={CIRCUMFERENCE}
+                  strokeDashoffset={CIRCUMFERENCE * (1 - fill / 100)}
+                  className={cn('transition-[stroke-dashoffset] duration-500', RING[level].stroke)}
+                />
+              )}
+            </svg>
+            <span className="absolute inset-0 flex items-center justify-center text-[10px] font-semibold tabular-nums">
+              {known ? `${Math.round(percent)}%` : '—'}
+            </span>
+          </span>
+          <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
+            {Icon && (
+              <Icon className={cn('size-2.5', level === 'critical' ? 'text-[#d03b3b]' : 'text-[#c98a00] dark:text-[#fab219]')} aria-hidden />
+            )}
+            {label}
+          </span>
+        </Link>
+      </TooltipTrigger>
+      <TooltipContent side="right">{tip}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+function windowTip(name: string, w: UsageWindow | null | undefined): string {
+  if (!w || w.utilization === null) return `${name}: sem dado`
+  return `${name}: ${Math.round(w.utilization)}%${w.resetsAt ? ` · reseta ${resetTime(w.resetsAt)}` : ''}`
+}
+
+/** Ícone da alça, com o nome ao passar o mouse. */
+function RailItem({
+  label,
+  active,
+  badge,
+  href,
+  onClick,
+  children,
+}: {
+  label: string
+  active?: boolean
+  badge?: number
+  href?: string
+  onClick?: () => void
+  children: React.ReactNode
+}) {
+  const className = cn(
+    'relative flex size-10 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground [&_svg]:size-5',
+    active && 'bg-muted text-foreground',
+  )
+  const content = (
+    <>
+      {children}
+      {badge ? (
+        <span className="absolute -top-0.5 -right-0.5 min-w-4 rounded-full bg-amber-500 px-1 text-center text-[10px] leading-4 font-semibold text-white">
+          {badge}
+        </span>
+      ) : null}
+    </>
+  )
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        {href ? (
+          <Link href={href} aria-label={label} className={className}>
+            {content}
+          </Link>
+        ) : (
+          <button type="button" aria-label={label} onClick={onClick} className={className}>
+            {content}
+          </button>
+        )}
+      </TooltipTrigger>
+      <TooltipContent side="right">{label}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+/**
+ * Lista de conversas do PC recolhida: uma alça estreita com as abas e, embaixo, CPU, memória e os
+ * limites do Claude em anéis. Sessões (ou o botão do topo) abre a lista de novo.
+ */
+export function SidebarRail() {
+  const [location] = useLocation()
+  const attention = useStore((s) => s.catalog.reduce((n, c) => n + (c.state === 'waiting' ? 1 : 0), 0))
+  const machine = useMachineFilter() ?? HOME
+  const system = useStore((s) => s.systems[machine])
+  const usage = useStore((s) => s.usages[machine])
+  // Com várias máquinas, os anéis dizem de qual é (a do filtro das Sessões).
+  const name = useMachines((s) => (s.machines.length > 1 ? s.machines.find((m) => m.id === machine)?.name : undefined))
+  const of = (text: string) => (name ? `${name} · ${text}` : text)
+  const expand = () => setSidebarCollapsed(false)
+  const plan = usage?.plan?.available ? usage.plan : null
+  const memory = system ? (system.memory.used / system.memory.total) * 100 : null
+
+  return (
+    <TooltipProvider delayDuration={200}>
+      <aside className="flex w-16 shrink-0 flex-col items-center gap-1 border-r py-3">
+        <RailItem label="Abrir a lista de conversas" onClick={expand}>
+          <PanelLeftOpen />
+        </RailItem>
+        <RailItem label="Nova conversa" href="/nova" active={location === '/nova'}>
+          <Plus />
+        </RailItem>
+        <div className="my-1 h-px w-8 bg-border" />
+        <RailItem
+          label={attention ? `Sessões: ${attention} ${attention === 1 ? 'precisa' : 'precisam'} de você` : 'Sessões'}
+          onClick={expand}
+          active={location === '/' || location.startsWith('/s/')}
+          badge={attention}
+        >
+          <MessagesSquare />
+        </RailItem>
+        <RailItem label="Projetos" href="/projetos" active={location.startsWith('/projetos')}>
+          <FolderGit2 />
+        </RailItem>
+        <RailItem label="Computador" href="/computador" active={location.startsWith('/computador')}>
+          <Monitor />
+        </RailItem>
+
+        <div className="mt-auto flex flex-col items-center gap-1.5">
+          <Ring
+            label="CPU"
+            percent={system ? system.cpu.percent : null}
+            tip={of(system ? `CPU: ${Math.round(system.cpu.percent)}% · carga ${system.cpu.load[0].toLocaleString('pt-BR')}` : 'CPU: carregando')}
+          />
+          <Ring
+            label="Mem."
+            percent={memory}
+            tip={of(system ? `Memória: ${bytes(system.memory.used)} de ${bytes(system.memory.total)}` : 'Memória: carregando')}
+          />
+          <Ring label="5 h" percent={plan?.fiveHour?.utilization ?? null} tip={of(windowTip('Claude · 5 h', plan?.fiveHour))} />
+          <Ring label="Semana" percent={plan?.sevenDay?.utilization ?? null} tip={of(windowTip('Claude · semana', plan?.sevenDay))} />
+        </div>
+      </aside>
+    </TooltipProvider>
+  )
+}

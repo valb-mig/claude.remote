@@ -1,10 +1,12 @@
-import { Plus } from 'lucide-react'
+import { PanelLeftOpen, Plus } from 'lucide-react'
 import { useEffect } from 'react'
 import { Link, Redirect, Route, Switch, useLocation } from 'wouter'
 import { BottomNav, ConnectionBanner } from '@/components/layout'
+import { SidebarRail } from '@/components/sidebar-rail'
 import { Button } from '@/components/ui/button'
 import { useWide } from '@/lib/hooks'
 import { loadMachines } from '@/lib/machines'
+import { setSidebarCollapsed, useSidebar } from '@/lib/sidebar'
 import { useSplit } from '@/lib/split'
 import { startOutbox } from '@/lib/outbox'
 import { syncPush } from '@/lib/push'
@@ -69,14 +71,16 @@ export default function App() {
   )
 }
 
-/** PC e tablet deitado: a lista de conversas fica fixa ao lado, com as abas no pé dela. */
+/** PC e tablet deitado: a lista de conversas fica fixa ao lado, com as abas no pé dela; recolhida, vira a alça. */
 function Sidebar() {
   // Com conversas lado a lado, a lista fica mais estreita para sobrar espaço para elas.
   const split = useSplit().ids.length > 1
+  const collapsed = useSidebar((s) => s.collapsed)
+  if (collapsed) return <SidebarRail />
   return (
     <aside className={cn('flex w-80 shrink-0 flex-col border-r', !split && 'xl:w-96')}>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <SessionsPage />
+        <SessionsPage onCollapse={() => setSidebarCollapsed(true)} />
       </div>
       <BottomNav />
     </aside>
@@ -110,20 +114,30 @@ function TabPages({ wide }: { wide: boolean }) {
   )
 }
 
-/** Tela larga sem conversa aberta: a lista já está ao lado. */
+/** Tela larga sem conversa aberta: a lista já está ao lado (ou recolhida na alça). */
 function NoChatOpen() {
+  const collapsed = useSidebar((s) => s.collapsed)
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
       <img src="/pwa-192.png" alt="" className="size-16 rounded-2xl" />
       <div className="space-y-1">
         <h1 className="text-lg font-semibold">Claude Remote</h1>
-        <p className="text-sm text-muted-foreground">Escolha uma conversa ao lado ou comece uma nova.</p>
+        <p className="text-sm text-muted-foreground">
+          {collapsed ? 'Abra a lista de conversas ou comece uma nova.' : 'Escolha uma conversa ao lado ou comece uma nova.'}
+        </p>
       </div>
-      <Button asChild>
-        <Link href="/nova">
-          <Plus /> Nova conversa
-        </Link>
-      </Button>
+      <div className="flex flex-wrap justify-center gap-2">
+        {collapsed && (
+          <Button variant="outline" onClick={() => setSidebarCollapsed(false)}>
+            <PanelLeftOpen /> Ver conversas
+          </Button>
+        )}
+        <Button asChild>
+          <Link href="/nova">
+            <Plus /> Nova conversa
+          </Link>
+        </Button>
+      </div>
     </div>
   )
 }
