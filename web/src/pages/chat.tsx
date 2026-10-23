@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  Bot,
   ChevronDown,
   Columns2,
   Copy,
@@ -16,6 +17,7 @@ import {
   Pin,
   PinOff,
   Smartphone,
+  Server,
   Trash2,
   Volume2,
   VolumeOff,
@@ -24,6 +26,9 @@ import {
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Link } from 'wouter'
+import { AgentSheet } from '@/components/agents/agent-sheet'
+import { AgentsSheet } from '@/components/agents/agents-sheet'
+import { AgentsContext, agentTree } from '@/components/agents/model'
 import { Composer } from '@/components/chat/composer'
 import { buildItems, type Keyed } from '@/components/chat/items'
 import { MessageList } from '@/components/chat/message-list'
@@ -56,11 +61,12 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import { api, errorMessage } from '@/lib/api'
-import { projectName } from '@/lib/format'
+import { projectName, stateInfo } from '@/lib/format'
 import { useGitStatus, useHome } from '@/lib/hooks'
 import { enqueue, useOutbox } from '@/lib/outbox'
 import { clearNotifications } from '@/lib/push'
 import { setAutoSpeech, speakNew, speechSupported, useSpeech } from '@/lib/speech'
+import { useMachine, useMachines } from '@/lib/machines'
 import { closeChat, openBeside, swapChat, usePane, useSplit } from '@/lib/split'
 import { onLiveEvent, selectView, subscribe, unsubscribe, useStore } from '@/lib/store'
 import type { ContextUsage, LoggedEvent, RunOptions } from '@/lib/types'
@@ -70,7 +76,7 @@ import { cn } from '@/lib/utils'
  * Histórico salvo da conversa. Com a sessão aberta no painel, o servidor devolve só o que
  * existia antes do processo (o resto vem ao vivo). Aberta no PC, atualiza periodicamente.
  */
-function useHistory(id: string, panelOpen: boolean, pcOwned: boolean, pcWorking: boolean) {
+function useHistory(id: string, machine: string, panelOpen: boolean, pcOwned: boolean, pcWorking: boolean) {
   const [events, setEvents] = useState<LoggedEvent[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const latest = useRef(0)
@@ -86,7 +92,8 @@ function useHistory(id: string, panelOpen: boolean, pcOwned: boolean, pcWorking:
     } catch (err) {
       if (ticket === latest.current) setError(errorMessage(err))
     }
-  }, [id])
+    // A máquina muda quando o catálogo dela chega (conversa aberta por link direto): busca de novo lá.
+  }, [id, machine])
 
   useEffect(() => {
     void load()
@@ -206,6 +213,9 @@ export function ChatPage({ id }: { id: string }) {
   const [besideOpen, setBesideOpen] = useState(false)
   const view = useStore(selectView(id))
   const entry = useStore((s) => s.catalog.find((c) => c.sessionId === id))
+  // Máquina da conversa (posta pelo ChatSplit, ver machines.ts): tudo desta tela vai para ela.
+  const machine = useMachine()
+  const machineLabel = useMachines((s) => (s.machines.length > 1 ? s.machines.find((m) => m.id === machine)?.name : undefined))
   const rekeyed = useStore((s) => s.rekeys[id])
   const [summaryOpen, setSummaryOpen] = useState(false)
   const [confirmTakeover, setConfirmTakeover] = useState(false)
@@ -213,7 +223,9 @@ export function ChatPage({ id }: { id: string }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [explorerOpen, setExplorerOpen] = useState(false)
   const [gitOpen, setGitOpen] = useState(false)
-  const home = useHome()
+  const [agentsOpen, setAgentsOpen] = useState(false)
+  const [agentId, setAgentId] = useState<string | null>(null)
+  const home = useHome(machine)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -250,7 +262,7 @@ export function ChatPage({ id }: { id: string }) {
   const waitingFor = panelOpen ? view.waitingFor : entry?.waitingFor
   const working = panelOpen && (state === 'running' || state === 'starting')
 
-  const history = useHistory(id, panelOpen, owner === 'pc', entry?.state === 'running')
+  const history = useHistory(id, machine, panelOpen, owner === 'pc', entry?.state === 'running')
 
   const events: Keyed[] = useMemo(
     () => [
@@ -260,6 +272,12 @@ export function ChatPage({ id }: { id: string }) {
     [history.events, panelOpen, view.events, view.runId],
   )
   const items = useMemo(() => buildItems(events), [events])
+  // Subagentes da conversa; sem processo cuidando dela (no painel ou no PC), quem não terminou parou.
+  const agents = useMemo(() => agentTree(items, panelOpen || owner === 'pc'), [items, panelOpen, owner])
+  const agentsContext = useMemo(() => ({ tree: agents, open: setAgentId }), [agents])
+  const agentsWorking = agents.count.running + agents.count.waiting
+  // Turno encerrado com subagentes em segundo plano: a conversa ainda trabalha (como na lista de conversas).
+  const shownState = state === 'idle' && agentsWorking ? 'running' : state
   const outbox = useOutbox((s) => s.items)
   const queued = useMemo(() => {
     // O evento da mensagem costuma chegar pelo WebSocket antes da resposta do envio: aí ela já saiu da fila.
@@ -270,7 +288,7 @@ export function ChatPage({ id }: { id: string }) {
   const context = useContextUsage(id, panelOpen, turns)
   // Com projeto (não a pasta pessoal): explorador de arquivos e git no topo.
   const project = entry?.cwd && home && entry.cwd !== home ? entry.cwd : undefined
-  const git = useGitStatus(project, turns)
+  const git = useGitStatus(machine, project, turns)
   // Conversa parada: modelo/esforço/modo escolhidos agora valem quando ela for retomada.
   const [pending, setPending] = useState<RunOptions>({})
   const { scrollRef, contentRef, onScroll, atBottom, follow, setFollow, jumpToBottom } = useAutoScroll([
@@ -311,307 +329,349 @@ export function ChatPage({ id }: { id: string }) {
     })
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <header
-        className={cn(
-          'flex shrink-0 items-center gap-1 border-b px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 compact:py-1',
-          // Lado a lado: a conversa em foco (a que recebe o que é escolhido na lista) ganha uma faixa no topo.
-          pane.split && pane.focused && 'shadow-[inset_0_2px_0_var(--color-primary)]',
-        )}
-      >
-        {/* No PC a lista de conversas já está ao lado. */}
-        <Button variant="ghost" size="icon" asChild aria-label="Voltar" className="lg:hidden">
-          <Link href="/">
-            <ArrowLeft />
-          </Link>
-        </Button>
-        {project && (
-          <Button variant="ghost" size="icon" onClick={() => setExplorerOpen(true)} aria-label="Arquivos do projeto">
-            <Menu />
+    <AgentsContext value={agentsContext}>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <header
+          className={cn(
+            'flex shrink-0 items-center gap-1 border-b px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 compact:py-1',
+            // Lado a lado: a conversa em foco (a que recebe o que é escolhido na lista) ganha uma faixa no topo.
+            pane.split && pane.focused && 'shadow-[inset_0_2px_0_var(--color-primary)]',
+          )}
+        >
+          {/* No PC a lista de conversas já está ao lado. */}
+          <Button variant="ghost" size="icon" asChild aria-label="Voltar" className="lg:hidden">
+            <Link href="/">
+              <ArrowLeft />
+            </Link>
           </Button>
-        )}
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium">{entry?.title ?? 'Sessão'}</div>
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span className="min-w-0 truncate">{projectName(entry?.cwd)}</span>
-            {owner === 'pc' && <Monitor className="size-3 shrink-0" />}
-            {owner === 'panel' && <Smartphone className="size-3 shrink-0" />}
-            <StateBadge state={state} waitingFor={waitingFor} className="h-5 shrink-0 px-1.5 text-[10px]" />
-          </div>
-        </div>
-        {speechSupported && (
-          <Button
-            variant={autoSpeech ? 'default' : 'ghost'}
-            size="icon"
-            className={cn(autoSpeech && 'rounded-full')}
-            onClick={() => {
-              setAutoSpeech(!autoSpeech)
-              if (autoSpeech) toast('Leitura automática desligada')
-              else toast('Leitura automática ligada', { description: 'As respostas novas do Claude serão lidas em voz alta.' })
-            }}
-            aria-pressed={autoSpeech}
-            aria-label={autoSpeech ? 'Leitura automática ligada: tocar para desligar' : 'Ler as respostas novas em voz alta'}
-          >
-            {autoSpeech ? <Volume2 /> : <VolumeOff />}
-          </Button>
-        )}
-        {project && git.status?.remote && <RepoLink url={git.status.remote} />}
-        {project && git.status && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="relative"
-            onClick={() => {
-              git.reload()
-              setGitOpen(true)
-            }}
-            aria-label={`Git: ${git.status.files.length} arquivos alterados`}
-          >
-            <GitBranch />
-            {git.status.files.length > 0 && (
-              <span className="absolute top-0.5 right-0 min-w-4 rounded-full bg-sky-600 px-1 text-center text-[9px] leading-4 font-semibold text-white">
-                {git.status.files.length > 99 ? '99+' : git.status.files.length}
-              </span>
-            )}
-          </Button>
-        )}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label="Mais ações">
-              <EllipsisVertical />
+          {project && (
+            <Button variant="ghost" size="icon" onClick={() => setExplorerOpen(true)} aria-label="Arquivos do projeto">
+              <Menu />
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-56">
-            {owner === 'panel' && (
-              <DropdownMenuItem disabled={busy || state === 'running' || state === 'waiting'} onSelect={release}>
-                <LogOut /> Liberar para o PC
-              </DropdownMenuItem>
-            )}
-            {owner === 'pc' && (
-              <DropdownMenuItem disabled={busy || state !== 'idle'} onSelect={() => setConfirmTakeover(true)}>
-                <Smartphone /> Assumir sessão
-              </DropdownMenuItem>
-            )}
-            {owner !== 'panel' && (
-              <DropdownMenuItem disabled={busy} onSelect={fork}>
-                <GitFork /> Continuar numa cópia
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuItem onSelect={() => setSummaryOpen(true)}>
-              <ListChecks /> Resumo da sessão
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onSelect={() =>
-                split.canAdd
-                  ? setBesideOpen(true)
-                  : toast(`Cabem ${split.max} conversas lado a lado nesta tela. Feche uma para abrir outra.`)
-              }
-            >
-              <Columns2 /> Abrir outra ao lado
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              disabled={busy || !entry}
-              onSelect={() => run(() => api.pin(id, !entry?.pinned), entry?.pinned ? 'Desafixada' : 'Fixada no topo')}
-            >
-              {entry?.pinned ? <PinOff /> : <Pin />} {entry?.pinned ? 'Desafixar' : 'Fixar no topo'}
-            </DropdownMenuItem>
-            <DropdownMenuItem disabled={busy} onSelect={() => setRenaming(entry?.title ?? '')}>
-              <Pencil /> Renomear
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => navigator.clipboard.writeText(resumeCommand).then(() => toast.success('Comando copiado'))}>
-              <Copy /> Copiar comando de retomada
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" disabled={busy || owner === 'pc'} onSelect={() => setConfirmDelete(true)}>
-              <Trash2 /> {owner === 'pc' ? 'Apagar (feche no PC antes)' : 'Apagar conversa'}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        {pane.split && (
-          <Button variant="ghost" size="icon" onClick={() => closeChat(id)} aria-label="Tirar esta conversa da tela">
-            <X />
-          </Button>
-        )}
-      </header>
-
-      <div className={cn('relative min-h-0 flex-1', pane.collapsed && 'hidden')}>
-        <div ref={scrollRef} onScroll={onScroll} className="absolute inset-0 overflow-y-auto">
-          <div ref={contentRef} className="mx-auto w-full max-w-3xl">
-            {history.events === null && !history.error ? (
-              <div className="space-y-4 p-4">
-                <Skeleton className="ml-auto h-10 w-2/3" />
-                <Skeleton className="h-24 w-full" />
-                <Skeleton className="h-16 w-full" />
-              </div>
-            ) : (
-              <>
-                {history.error && <p className="p-4 text-sm text-red-600 dark:text-red-400">{history.error}</p>}
-                {items.length === 0 && queued.length === 0 && !working && !history.error && (
-                  <p className="p-4 text-center text-sm text-muted-foreground">Nenhuma mensagem ainda.</p>
-                )}
-                <MessageList
-                  items={items}
-                  queued={queued}
-                  sessionId={id}
-                  actionable={panelOpen}
-                  streaming={view.streaming}
-                  working={working}
-                  cwd={entry?.cwd}
-                />
-              </>
-            )}
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-medium">{entry?.title ?? 'Sessão'}</div>
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span className="min-w-0 truncate">{projectName(entry?.cwd)}</span>
+              {machineLabel && (
+                <span className="flex shrink-0 items-center gap-0.5">
+                  <Server className="size-3" />
+                  {machineLabel}
+                </span>
+              )}
+              {owner === 'pc' && <Monitor className="size-3 shrink-0" />}
+              {owner === 'panel' && <Smartphone className="size-3 shrink-0" />}
+              <StateBadge state={shownState} waitingFor={waitingFor} className="h-5 shrink-0 px-1.5 text-[10px]" />
+            </div>
           </div>
-        </div>
+          {speechSupported && (
+            <Button
+              variant={autoSpeech ? 'default' : 'ghost'}
+              size="icon"
+              className={cn(autoSpeech && 'rounded-full')}
+              onClick={() => {
+                setAutoSpeech(!autoSpeech)
+                if (autoSpeech) toast('Leitura automática desligada')
+                else toast('Leitura automática ligada', { description: 'As respostas novas do Claude serão lidas em voz alta.' })
+              }}
+              aria-pressed={autoSpeech}
+              aria-label={autoSpeech ? 'Leitura automática ligada: tocar para desligar' : 'Ler as respostas novas em voz alta'}
+            >
+              {autoSpeech ? <Volume2 /> : <VolumeOff />}
+            </Button>
+          )}
+          {agents.all.length > 0 && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="relative"
+              onClick={() => setAgentsOpen(true)}
+              aria-label={`Agentes: ${agentsWorking} trabalhando de ${agents.all.length}`}
+            >
+              <Bot />
+              {agentsWorking > 0 && (
+                <span
+                  className={cn(
+                    'absolute top-0.5 right-0 min-w-4 rounded-full px-1 text-center text-[9px] leading-4 font-semibold text-white',
+                    agents.count.waiting ? 'bg-amber-600' : 'bg-sky-600',
+                  )}
+                >
+                  {agentsWorking}
+                </span>
+              )}
+            </Button>
+          )}
+          {project && git.status?.remote && <RepoLink url={git.status.remote} />}
+          {project && git.status && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="relative"
+              onClick={() => {
+                git.reload()
+                setGitOpen(true)
+              }}
+              aria-label={`Git: ${git.status.files.length} arquivos alterados`}
+            >
+              <GitBranch />
+              {git.status.files.length > 0 && (
+                <span className="absolute top-0.5 right-0 min-w-4 rounded-full bg-sky-600 px-1 text-center text-[9px] leading-4 font-semibold text-white">
+                  {git.status.files.length > 99 ? '99+' : git.status.files.length}
+                </span>
+              )}
+            </Button>
+          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" aria-label="Mais ações">
+                <EllipsisVertical />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-56">
+              {owner === 'panel' && (
+                <DropdownMenuItem disabled={busy || state === 'running' || state === 'waiting' || agentsWorking > 0} onSelect={release}>
+                  <LogOut /> Liberar para o PC
+                </DropdownMenuItem>
+              )}
+              {owner === 'pc' && (
+                <DropdownMenuItem disabled={busy || state !== 'idle'} onSelect={() => setConfirmTakeover(true)}>
+                  <Smartphone /> Assumir sessão
+                </DropdownMenuItem>
+              )}
+              {owner !== 'panel' && (
+                <DropdownMenuItem disabled={busy} onSelect={fork}>
+                  <GitFork /> Continuar numa cópia
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onSelect={() => setSummaryOpen(true)}>
+                <ListChecks /> Resumo da sessão
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() =>
+                  split.canAdd
+                    ? setBesideOpen(true)
+                    : toast(`Cabem ${split.max} conversas lado a lado nesta tela. Feche uma para abrir outra.`)
+                }
+              >
+                <Columns2 /> Abrir outra ao lado
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                disabled={busy || !entry}
+                onSelect={() => run(() => api.pin(id, !entry?.pinned), entry?.pinned ? 'Desafixada' : 'Fixada no topo')}
+              >
+                {entry?.pinned ? <PinOff /> : <Pin />} {entry?.pinned ? 'Desafixar' : 'Fixar no topo'}
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled={busy} onSelect={() => setRenaming(entry?.title ?? '')}>
+                <Pencil /> Renomear
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => navigator.clipboard.writeText(resumeCommand).then(() => toast.success('Comando copiado'))}>
+                <Copy /> Copiar comando de retomada
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" disabled={busy || owner === 'pc'} onSelect={() => setConfirmDelete(true)}>
+                <Trash2 /> {owner === 'pc' ? 'Apagar (feche no PC antes)' : 'Apagar conversa'}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {pane.split && (
+            <Button variant="ghost" size="icon" onClick={() => closeChat(id)} aria-label="Tirar esta conversa da tela">
+              <X />
+            </Button>
+          )}
+        </header>
 
-        <div className="pointer-events-none absolute right-3 bottom-3 z-10 flex flex-col items-end gap-2">
-          {!atBottom && (
+        <div className={cn('relative min-h-0 flex-1', pane.collapsed && 'hidden')}>
+          <div ref={scrollRef} onScroll={onScroll} className="absolute inset-0 overflow-y-auto">
+            <div ref={contentRef} className="mx-auto w-full max-w-3xl">
+              {history.events === null && !history.error ? (
+                <div className="space-y-4 p-4">
+                  <Skeleton className="ml-auto h-10 w-2/3" />
+                  <Skeleton className="h-24 w-full" />
+                  <Skeleton className="h-16 w-full" />
+                </div>
+              ) : (
+                <>
+                  {history.error && <p className="p-4 text-sm text-red-600 dark:text-red-400">{history.error}</p>}
+                  {items.length === 0 && queued.length === 0 && !working && !history.error && (
+                    <p className="p-4 text-center text-sm text-muted-foreground">Nenhuma mensagem ainda.</p>
+                  )}
+                  <MessageList
+                    items={items}
+                    queued={queued}
+                    sessionId={id}
+                    actionable={panelOpen}
+                    streaming={view.streaming}
+                    working={working}
+                    cwd={entry?.cwd}
+                  />
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="pointer-events-none absolute right-3 bottom-3 z-10 flex flex-col items-end gap-2">
+            {!atBottom && (
+              <Button
+                variant="secondary"
+                size="icon"
+                onClick={jumpToBottom}
+                aria-label="Ir para a última mensagem"
+                className="pointer-events-auto size-10 rounded-full border shadow-lg"
+              >
+                <ChevronDown />
+              </Button>
+            )}
             <Button
               variant="secondary"
               size="icon"
-              onClick={jumpToBottom}
-              aria-label="Ir para a última mensagem"
-              className="pointer-events-auto size-10 rounded-full border shadow-lg"
+              onClick={() => setFollow(!follow)}
+              aria-pressed={follow}
+              aria-label={follow ? 'Acompanhando o fim: tocar para soltar o scroll' : 'Scroll solto: tocar para travar no fim'}
+              className={cn(
+                'pointer-events-auto size-9 rounded-full border shadow-md backdrop-blur',
+                follow ? 'bg-background/70 text-muted-foreground' : 'bg-background text-foreground',
+              )}
             >
-              <ChevronDown />
-            </Button>
-          )}
-          <Button
-            variant="secondary"
-            size="icon"
-            onClick={() => setFollow(!follow)}
-            aria-pressed={follow}
-            aria-label={follow ? 'Acompanhando o fim: tocar para soltar o scroll' : 'Scroll solto: tocar para travar no fim'}
-            className={cn(
-              'pointer-events-auto size-9 rounded-full border shadow-md backdrop-blur',
-              follow ? 'bg-background/70 text-muted-foreground' : 'bg-background text-foreground',
-            )}
-          >
-            {follow ? <Lock /> : <LockOpen />}
-          </Button>
-        </div>
-      </div>
-
-      {/* Encolhida (celular em pé, digitando na outra): some sem desmontar, sem perder rascunho nem leitura. */}
-      <div className={pane.collapsed ? 'hidden' : 'contents'}>
-        <SpeechPlayer sessionId={id} />
-
-        {owner === 'pc' ? (
-          <div className="shrink-0 space-y-2 border-t px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-            <p className="text-xs text-muted-foreground">
-              {state === 'idle'
-                ? 'Aberta no PC e ociosa. Assumir encerra a sessão no PC e a continua aqui, com todo o contexto.'
-                : 'Aberta no PC e ocupada. Dá para assumir quando ela ficar ociosa.'}
-            </p>
-            <Button className="h-11 w-full" disabled={busy || state !== 'idle'} onClick={() => setConfirmTakeover(true)}>
-              <Smartphone /> Assumir sessão
+              {follow ? <Lock /> : <LockOpen />}
             </Button>
           </div>
-        ) : owner === 'panel' ? (
-          <Composer
-            sessionId={id}
-            cwd={entry?.cwd}
-            branch={git.status?.branch}
-            working={working || state === 'waiting'}
-            // Logo após retomar, enquanto o primeiro evento de ajustes não chega, vale o que foi escolhido.
-            settings={Object.keys(view.settings).length ? view.settings : pending}
-            context={context}
-            onChangeSettings={async (patch) => {
-              await api.settings(id, patch)
-            }}
-            onCompact={() => api.send(id, { text: '/compact' }).then(() => undefined)}
-            onSend={(text, attachments) => enqueue(id, text, attachments)}
-            onInterrupt={() => api.interrupt(id).then(() => undefined)}
-          />
-        ) : (
-          <Composer
-            sessionId={id}
-            cwd={entry?.cwd}
-            branch={git.status?.branch}
-            working={false}
-            hint="Enviar retoma esta conversa aqui pelo celular."
-            settings={pending}
-            context={null}
-            onChangeSettings={(patch) => setPending((p) => ({ ...p, ...patch }))}
-            onSend={(text, attachments) => enqueue(id, text, attachments, pending)}
-          />
-        )}
-      </div>
+        </div>
 
-      <SummarySheet sessionId={id} events={events} cwd={entry?.cwd} open={summaryOpen} onOpenChange={setSummaryOpen} />
-      <SessionPicker open={besideOpen} onOpenChange={setBesideOpen} exclude={split.ids} onPick={(other) => openBeside(other, id)} />
+        {/* Encolhida (celular em pé, digitando na outra): some sem desmontar, sem perder rascunho nem leitura. */}
+        <div className={pane.collapsed ? 'hidden' : 'contents'}>
+          <SpeechPlayer sessionId={id} />
 
-      <Dialog open={renaming !== null} onOpenChange={(o) => !o && setRenaming(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Renomear sessão</DialogTitle>
-          </DialogHeader>
-          <form
-            id="rename"
-            onSubmit={(e) => {
-              e.preventDefault()
-              const title = renaming?.trim()
-              if (!title) return
-              setRenaming(null)
-              void run(() => api.rename(id, title), 'Título salvo')
-            }}
-          >
-            <Input value={renaming ?? ''} onChange={(e) => setRenaming(e.target.value)} autoFocus maxLength={200} />
-          </form>
-          <p className="text-xs text-muted-foreground">O título vale também no /resume do terminal e no VSCode.</p>
-          <DialogFooter>
-            <Button type="submit" form="rename" disabled={!renaming?.trim()}>
-              Salvar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          {owner === 'pc' ? (
+            <div className="shrink-0 space-y-2 border-t px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+              <p className="text-xs text-muted-foreground">
+                {state === 'idle'
+                  ? 'Aberta no PC e ociosa. Assumir encerra a sessão no PC e a continua aqui, com todo o contexto.'
+                  : 'Aberta no PC e ocupada. Dá para assumir quando ela ficar ociosa.'}
+              </p>
+              <Button className="h-11 w-full" disabled={busy || state !== 'idle'} onClick={() => setConfirmTakeover(true)}>
+                <Smartphone /> Assumir sessão
+              </Button>
+            </div>
+          ) : owner === 'panel' ? (
+            <Composer
+              sessionId={id}
+              cwd={entry?.cwd}
+              branch={git.status?.branch}
+              working={working || state === 'waiting'}
+              // Logo após retomar, enquanto o primeiro evento de ajustes não chega, vale o que foi escolhido.
+              settings={Object.keys(view.settings).length ? view.settings : pending}
+              context={context}
+              onChangeSettings={async (patch) => {
+                await api.settings(id, patch)
+              }}
+              onCompact={() => api.send(id, { text: '/compact' }).then(() => undefined)}
+              onSend={(text, attachments) => enqueue(id, text, attachments)}
+              onInterrupt={() => api.interrupt(id).then(() => undefined)}
+            />
+          ) : (
+            <Composer
+              sessionId={id}
+              cwd={entry?.cwd}
+              branch={git.status?.branch}
+              working={false}
+              hint="Enviar retoma esta conversa aqui pelo celular."
+              settings={pending}
+              context={null}
+              onChangeSettings={(patch) => setPending((p) => ({ ...p, ...patch }))}
+              onSend={(text, attachments) => enqueue(id, text, attachments, pending)}
+            />
+          )}
+        </div>
 
-      {project && <ExplorerSheet cwd={project} open={explorerOpen} onOpenChange={setExplorerOpen} />}
-      {project && git.status && (
-        <GitSheet cwd={project} status={git.status} open={gitOpen} onOpenChange={setGitOpen} onRefresh={git.reload} />
-      )}
+        <SummarySheet sessionId={id} events={events} cwd={entry?.cwd} open={summaryOpen} onOpenChange={setSummaryOpen} />
+        <AgentsSheet
+          tree={agents}
+          rootLabel={stateInfo(shownState, waitingFor).label}
+          open={agentsOpen}
+          onOpenChange={setAgentsOpen}
+          onOpenAgent={setAgentId}
+        />
+        <AgentSheet
+          sessionId={id}
+          node={agentId ? agents.byId.get(agentId) : undefined}
+          onOpenChange={(o) => !o && setAgentId(null)}
+          onOpen={setAgentId}
+        />
+        <SessionPicker open={besideOpen} onOpenChange={setBesideOpen} exclude={split.ids} onPick={(other) => openBeside(other, id)} />
 
-      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Apagar esta conversa?</AlertDialogTitle>
-            <AlertDialogDescription>
-              O histórico é removido do Claude Code: some também do /resume no terminal e do VSCode. Não dá para desfazer.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={() =>
-                run(async () => {
-                  await api.remove(id)
-                  closeChat(id, true)
-                }, 'Conversa apagada')
-              }
+        <Dialog open={renaming !== null} onOpenChange={(o) => !o && setRenaming(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Renomear sessão</DialogTitle>
+            </DialogHeader>
+            <form
+              id="rename"
+              onSubmit={(e) => {
+                e.preventDefault()
+                const title = renaming?.trim()
+                if (!title) return
+                setRenaming(null)
+                void run(() => api.rename(id, title), 'Título salvo')
+              }}
             >
-              Apagar
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+              <Input value={renaming ?? ''} onChange={(e) => setRenaming(e.target.value)} autoFocus maxLength={200} />
+            </form>
+            <p className="text-xs text-muted-foreground">O título vale também no /resume do terminal e no VSCode.</p>
+            <DialogFooter>
+              <Button type="submit" form="rename" disabled={!renaming?.trim()}>
+                Salvar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
-      <AlertDialog open={confirmTakeover} onOpenChange={setConfirmTakeover}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Assumir esta sessão?</AlertDialogTitle>
-            <AlertDialogDescription>
-              A sessão aberta no PC será encerrada e a conversa continua aqui, com todo o contexto. Para voltar ao PC depois, use
-              “Liberar para o PC”.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => run(() => api.takeover(id), 'Sessão assumida')}>Assumir</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
+        {project && <ExplorerSheet cwd={project} open={explorerOpen} onOpenChange={setExplorerOpen} />}
+        {project && git.status && (
+          <GitSheet cwd={project} status={git.status} open={gitOpen} onOpenChange={setGitOpen} onRefresh={git.reload} />
+        )}
+
+        <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Apagar esta conversa?</AlertDialogTitle>
+              <AlertDialogDescription>
+                O histórico é removido do Claude Code: some também do /resume no terminal e do VSCode. Não dá para desfazer.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                onClick={() =>
+                  run(async () => {
+                    await api.remove(id)
+                    closeChat(id, true)
+                  }, 'Conversa apagada')
+                }
+              >
+                Apagar
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog open={confirmTakeover} onOpenChange={setConfirmTakeover}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Assumir esta sessão?</AlertDialogTitle>
+              <AlertDialogDescription>
+                A sessão aberta no PC será encerrada e a conversa continua aqui, com todo o contexto. Para voltar ao PC depois, use
+                “Liberar para o PC”.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction onClick={() => run(() => api.takeover(id), 'Sessão assumida')}>Assumir</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    </AgentsContext>
   )
 }

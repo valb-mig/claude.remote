@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { api, errorMessage } from '@/lib/api'
+import { useMachine } from '@/lib/machines'
 import type { GitFile, GitStatus } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -30,9 +31,10 @@ function badge(f: GitFile): { letter: string; className: string; label: string }
 function DiffView({ cwd, path, onBack }: { cwd: string; path: string; onBack: () => void }) {
   const [diff, setDiff] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const machine = useMachine()
   useEffect(() => {
-    api.gitDiff(cwd, path).then((r) => setDiff(r.diff), (err) => setError(errorMessage(err)))
-  }, [cwd, path])
+    api.gitDiff(machine, cwd, path).then((r) => setDiff(r.diff), (err) => setError(errorMessage(err)))
+  }, [machine, cwd, path])
 
   const lines = diff?.split('\n') ?? []
   return (

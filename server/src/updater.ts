@@ -13,7 +13,7 @@ const FETCH_EVERY_MS = 30_000;
 const LOG_TAIL = 4_000;
 
 /** Conversas do painel abertas antes do reinício, para reabrir na volta (com os mesmos ajustes). */
-const RESUME_FILE = join(homedir(), '.cache', 'claude-remote', 'resume.json');
+const RESUME_FILE = process.env.RESUME_FILE ?? join(homedir(), '.cache', 'claude-remote', 'resume.json');
 const RESUME_MAX_AGE_MS = 10 * 60_000;
 
 /** Saída com erro de propósito: o serviço tem `Restart=on-failure` e sobe de novo em 3 s. */

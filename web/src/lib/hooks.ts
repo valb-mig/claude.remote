@@ -28,32 +28,37 @@ export function useWindowWidth(): number {
   )
 }
 
-let homeRequest: Promise<string> | null = null
+const homeRequests = new Map<string, Promise<string>>()
 
-/** Pasta pessoal no PC (uma consulta por carregamento do app). */
-export function useHome(): string | undefined {
+/** Pasta pessoal na máquina (uma consulta por máquina por carregamento do app). */
+export function useHome(machine: string): string | undefined {
   const [home, setHome] = useState<string>()
   useEffect(() => {
-    homeRequest ??= api.health().then((h) => h.home)
-    homeRequest.then(setHome, () => (homeRequest = null))
-  }, [])
+    let request = homeRequests.get(machine)
+    if (!request) homeRequests.set(machine, (request = api.health(machine).then((h) => h.home)))
+    request.then(setHome, () => homeRequests.delete(machine))
+  }, [machine])
   return home
 }
 
 /** Estado do git do projeto; relido quando `refresh` muda (ex.: a cada turno concluído). */
-export function useGitStatus(cwd: string | undefined, refresh: unknown): { status: GitStatus | null; reload: () => void } {
+export function useGitStatus(
+  machine: string,
+  cwd: string | undefined,
+  refresh: unknown,
+): { status: GitStatus | null; reload: () => void } {
   const [status, setStatus] = useState<GitStatus | null>(null)
   const [tick, setTick] = useState(0)
   useEffect(() => {
     if (!cwd) return setStatus(null)
     let alive = true
-    api.git(cwd).then(
+    api.git(machine, cwd).then(
       (s) => alive && setStatus(s),
       () => alive && setStatus(null),
     )
     return () => {
       alive = false
     }
-  }, [cwd, refresh, tick])
+  }, [machine, cwd, refresh, tick])
   return { status, reload: () => setTick((t) => t + 1) }
 }

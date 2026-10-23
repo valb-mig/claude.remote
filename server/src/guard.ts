@@ -70,6 +70,18 @@ export function accessGuard(policy: AccessPolicy) {
     if (origin && !policy.origins.has(origin)) {
       return reply.code(403).send({ error: 'origin_not_allowed' });
     }
+    // App servido por outra máquina sua (ver machines.ts): o navegador só entrega a resposta com
+    // este cabeçalho, e antes de um POST com JSON pergunta com um OPTIONS.
+    if (origin) reply.header('access-control-allow-origin', origin).header('vary', 'Origin');
+    if (origin && req.method === 'OPTIONS') {
+      return reply
+        .header('access-control-allow-methods', 'GET, POST')
+        .header('access-control-allow-headers', 'content-type')
+        .header('access-control-allow-private-network', 'true')
+        .header('access-control-max-age', '600')
+        .code(204)
+        .send();
+    }
 
     const unsafe = req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'OPTIONS';
     if (unsafe && !String(req.headers['content-type'] ?? '').startsWith('application/json')) {

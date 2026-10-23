@@ -99,6 +99,12 @@ O painel passa a abrir como um app e avisa quando o Claude precisa de você.
 
 O servidor confere o login do Tailscale de quem acessa (o `tailscale serve` informa no cabeçalho `Tailscale-User-Login`). Por padrão, só entra o dono do PC na tailnet. Para liberar outra conta, use `ALLOWED_LOGINS`: ela substitui o padrão, então inclua o seu login também.
 
+### Várias máquinas
+
+Instale o Claude Remote em outra máquina sua da mesma tailnet (o mesmo login do Tailscale) e ela aparece sozinha no app, em até um minuto: cada servidor pergunta ao Tailscale quais máquinas do dono respondem como Claude Remote. Não há central: o app, instalado a partir de qualquer uma, fala direto com todas, e cada servidor aceita o app vindo de outra máquina sua (só do mesmo dono, nunca de outro endereço). Com uma máquina desligada, as outras seguem funcionando.
+
+As notificações passam pela máquina de onde o app foi instalado: o celular só se inscreve nela, e as outras repassam os avisos para ela. Com ela desligada, os avisos das outras não chegam.
+
 ### Configuração
 
 | Variável | Padrão | Para quê |
@@ -109,6 +115,8 @@ O servidor confere o login do Tailscale de quem acessa (o `tailscale serve` info
 | `EXTRA_ORIGINS` | (nenhuma) | Origens extras aceitas do navegador, separadas por `,` |
 | `UPLOADS_DIR` | `~/.cache/claude-remote/uploads` | Onde ficam os anexos enviados pelo celular |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Configuração e histórico do Claude Code, se você usa outra pasta |
+| `MACHINE_NAME` | o nome do sistema | Nome desta máquina no app, quando há várias |
+| `EXTRA_MACHINES` | (nenhuma) | Outras máquinas além das achadas no Tailscale (ex.: uma instância de teste, `http://127.0.0.1:7338`), separadas por `,` |
 
 No serviço, defina com `systemctl --user edit claude-remote` e depois `systemctl --user restart claude-remote`:
 
@@ -148,6 +156,11 @@ O que dá para fazer:
 - **Nova** (na home) pergunta só onde trabalhar, sem projeto (`~`) ou um projeto, e abre um chat vazio. A primeira mensagem, digitada na própria caixa do chat com modelo, modo, `/`, `@` e anexos, cria a sessão.
 - **Projetos:** escolher um diretório do PC para iniciar uma sessão nova.
 - **Computador:** detalhes do sistema (carga, swap, processos do Claude e memória deles, tempo ligado), todas as janelas de uso, inclusive por modelo, a conexão, as notificações e o tema.
+
+Com várias máquinas (ver [Várias máquinas](#várias-máquinas)):
+- As conversas de todas aparecem juntas, cada uma com o nome da máquina. No topo das Sessões, o filtro **Todas · máquina 1 · máquina 2** mostra só as de uma; a bolinha de cada máquina diz se a conexão com ela está de pé.
+- O cabeçalho do chat diz a máquina, e tudo da conversa (mensagens, arquivos, git, `@`, comandos) vai para ela. Dá para pôr conversas de máquinas diferentes lado a lado.
+- **Nova** pergunta primeiro a máquina e depois o projeto dela. **Projetos** e **Computador** mostram os da máquina escolhida no filtro.
 
 O app se ajusta à tela:
 - **Celular em pé:** uma tela por vez, com as abas embaixo.
@@ -193,6 +206,12 @@ No chat:
   - **Arquivos alterados**, com as linhas colocadas e tiradas; tocar mostra o diff de cada edição. Entram as mudanças feitas pelas ferramentas de edição do Claude (Edit, Write); arquivos mudados por um comando (um script, um formatador) aparecem só em **Comandos**.
   - **Comandos** do terminal, com ✓ ou ✗; tocar mostra o comando e a saída.
   - **Links**: as páginas que o Claude acessou e as pesquisas que fez na web, e os links citados na resposta.
+- **Subagentes:** quando o Claude delega parte do trabalho (a ferramenta Agent), cada subagente vira uma linha no bloco de ações, com a tarefa e, embaixo, o que ele está fazendo agora; ao terminar, o começo do relatório. O que ele faz por dentro (ferramentas, falas) não se mistura ao chat: fica no painel dele. As aprovações pedidas por um subagente dizem de qual subagente vieram.
+  - O botão de robô no topo aparece quando a conversa tem subagentes, com quantos estão trabalhando (laranja se algum pede aprovação). Ele abre **Agentes**, a visão geral, em duas formas:
+    - **Grafo**, no jeito de um fluxograma do mermaid: a conversa e, ligado a ela, cada subagente, com os que um subagente chamou ligados a ele. A cor diz o estado (trabalhando, pede aprovação, concluído, falhou, interrompido), a linha corre enquanto ele trabalha e fica pontilhada se ele roda em segundo plano. O desenho vai de cima para baixo ou da esquerda para a direita, o que couber melhor na tela (a seta embaixo troca), com zoom e **caber na tela**.
+    - **Lista**, na ordem em que foram chamados, com tipo, ferramentas usadas, tempo e o que cada um está fazendo.
+  - Tocar num subagente (no chat, no grafo ou na lista) abre o painel dele: o que está fazendo agora (com um resumo do andamento a cada ~30 s), quem o chamou e quem ele chamou, o pedido que recebeu, o passo a passo e o relatório final. Em conversas do histórico ou abertas no PC, o passo a passo vem do registro salvo no PC.
+  - Subagentes em segundo plano continuam depois do fim da resposta: enquanto trabalham, a conversa segue como **Executando**, com "N subagentes" na lista de conversas, e **Liberar para o PC** espera eles terminarem.
 - Numa conversa parada, modelo, esforço e modo escolhidos na caixa valem quando ela for retomada.
 - Sem internet, ou com o PC fora de alcance, a mensagem não se perde, como no WhatsApp: aparece com um relógio e **Aguardando conexão** e é enviada sozinha, na ordem, assim que a conexão volta, mesmo que o app tenha sido fechado nesse meio-tempo. Se não der para entregar (por exemplo, a sessão foi aberta no PC), ela fica marcada como **Não enviada**, com **Tentar de novo** e **Descartar**. Um reenvio nunca repete o turno no Claude.
 - Imagens que o Claude devolve (prints, imagens lidas) e as que você envia aparecem como miniatura, reduzida no PC (até 512 px) para pesar pouco no 4G; o original só é baixado ao ampliar. Tocar abre a imagem ampliada por cima do chat, com quem mandou e a posição no topo ("Claude · 3 / 8"):
@@ -271,6 +290,7 @@ node scripts/poc-client.ts release <id>          # devolver ao terminal
 | GET | `/api/sessions` | Catálogo: salvas + vivas no PC + do painel, com `owner` e `state` |
 | GET | `/api/projects` | Diretórios disponíveis para sessões novas |
 | GET | `/api/sessions/:id/history` | Histórico salvo, normalizado |
+| GET | `/api/sessions/:id/agents/:toolUseId` | O que o subagente criado por essa chamada da ferramenta Agent fez, do transcript salvo (`?agentId=` poupa a busca; `404 agent_not_found`) |
 | POST | `/api/sessions` | Nova sessão `{cwd?, prompt, attachments?, model?, effort?, permissionMode?}`; sem `cwd`, abre em `~` |
 | POST | `/api/sessions/:id/open` | Retomar no painel (`409 live_on_pc` se estiver aberta no PC) |
 | POST | `/api/sessions/:id/takeover` | Assumir (`409 busy_on_pc` se estiver ocupada) |
@@ -297,6 +317,8 @@ node scripts/poc-client.ts release <id>          # devolver ao terminal
 | POST | `/api/push/subscribe` | `{subscription, prefs: {done, pc}}`: inscreve o aparelho ou muda as preferências (guardado em `~/.local/state/claude-remote/push.json`) |
 | POST | `/api/push/unsubscribe` | `{endpoint}`: remove o aparelho |
 | POST | `/api/push/test` | `{endpoint}`: manda um aviso de teste a esse aparelho |
+| POST | `/api/push/relay` | `{payload, opts}`: aviso repassado por outra máquina sua, entregue aos aparelhos inscritos aqui (não repassa de novo) |
+| GET | `/api/machines` | Nome desta máquina e as outras suas com o Claude Remote (`{name, machines: [{id, name, base}]}`) |
 | GET | `/api/update` | Branch e commit do PC, novidades da `main` do GitHub, bloqueios e o andamento de uma atualização |
 | POST | `/api/update` | Atualiza: troca para a `main`, avança, `pnpm install`, `pnpm build` e reinicia (`409` com mudança local, `main` divergente, conversa trabalhando ou já em dia) |
 | POST | `/api/update/restart` | Reinício que ficou adiado porque uma conversa começou a trabalhar durante a compilação |

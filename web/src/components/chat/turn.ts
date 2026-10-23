@@ -83,6 +83,11 @@ function summarize(tools: ToolEntry[], texts: string[]): TurnInfo {
   return { files: [...files.values()], commands, visited, cited: citedLinks(texts) }
 }
 
+/** Ferramentas de um bloco de atividade, incluindo as dos subagentes criados nele. */
+export function toolsIn(entries: ActivityEntry[]): ToolEntry[] {
+  return entries.flatMap((e) => (e.kind === 'tool' ? [e, ...toolsIn(e.inner ?? [])] : []))
+}
+
 /**
  * O que cada turno fez, pela chave da última resposta do Claude nele (onde os atalhos aparecem).
  * Turnos sem arquivos, comandos nem links ficam de fora.
@@ -103,7 +108,7 @@ export function turnsOf(items: Item[]): Map<string, TurnInfo> {
   }
   for (const item of items) {
     if (item.type === 'user') close()
-    else if (item.type === 'activity') tools.push(...item.entries.filter((e): e is ToolEntry => e.kind === 'tool'))
+    else if (item.type === 'activity') tools.push(...toolsIn(item.entries))
     else if (item.type === 'assistant') {
       texts.push(item.text)
       last = item.key

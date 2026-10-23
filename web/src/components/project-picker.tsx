@@ -1,45 +1,62 @@
 import { FolderGit2, House } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
+import { MachineChips } from '@/components/machine-filter'
 import { Input } from '@/components/ui/input'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { api, errorMessage } from '@/lib/api'
 import { projectName, relativeTime, shortPath } from '@/lib/format'
+import { HOME, useMachineFilter } from '@/lib/machines'
 import { useStore } from '@/lib/store'
 
-/** Escolha de onde a conversa nova roda: sem projeto (pasta pessoal) ou um projeto, por uso recente. */
+/**
+ * Escolha de onde a conversa nova roda: sem projeto (pasta pessoal) ou um projeto, por uso recente.
+ * Com várias máquinas, primeiro a máquina (começa na do filtro do topo ou na `machine` pedida).
+ */
 export function ProjectPicker({
   open,
   onOpenChange,
   onPick,
+  machine: initial,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** `undefined` = sem projeto. */
-  onPick: (cwd: string | undefined) => void
+  onPick: (cwd: string | undefined, machine: string) => void
+  machine?: string
 }) {
   const catalog = useStore((s) => s.catalog)
-  const [projects, setProjects] = useState<string[] | null>(null)
+  const filter = useMachineFilter()
+  const [machine, setMachine] = useState(initial ?? filter ?? HOME)
+  // Projetos de cada máquina, buscados quando ela é escolhida.
+  const [byMachine, setByMachine] = useState<Record<string, string[]>>({})
+  const projects = byMachine[machine] ?? null
   const [query, setQuery] = useState('')
 
   useEffect(() => {
-    if (open && !projects) api.projects().then(setProjects, (err) => toast.error(errorMessage(err)))
-  }, [open, projects])
+    if (!open || projects) return
+    api.projects(machine).then(
+      (list) => setByMachine((all) => ({ ...all, [machine]: list })),
+      (err) => toast.error(errorMessage(err)),
+    )
+  }, [open, projects, machine])
 
   const list = useMemo(() => {
     const last = new Map<string, number>()
-    for (const c of catalog) if (c.cwd) last.set(c.cwd, Math.max(last.get(c.cwd) ?? 0, c.lastModified))
+    for (const c of catalog) {
+      if (c.cwd && (c.machine ?? HOME) === machine) last.set(c.cwd, Math.max(last.get(c.cwd) ?? 0, c.lastModified))
+    }
     const q = query.trim().toLowerCase()
     return (projects ?? [])
       .filter((p) => !q || p.toLowerCase().includes(q))
       .map((p) => ({ path: p, last: last.get(p) }))
       .sort((a, b) => (b.last ?? 0) - (a.last ?? 0) || a.path.localeCompare(b.path))
-  }, [projects, query, catalog])
+  }, [projects, query, catalog, machine])
 
   const pick = (cwd: string | undefined) => {
     onOpenChange(false)
-    onPick(cwd)
+    onPick(cwd, machine)
   }
 
   return (
@@ -49,6 +66,7 @@ export function ProjectPicker({
           <SheetTitle>Nova conversa</SheetTitle>
           <SheetDescription>Onde o Claude vai trabalhar?</SheetDescription>
         </SheetHeader>
+        <MachineChips value={machine} onChange={(m) => m !== null && setMachine(m)} className="px-4 pb-2" />
         <div className="px-4 pb-2">
           <Input type="search" placeholder="Buscar projeto" value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>

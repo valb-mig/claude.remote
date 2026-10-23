@@ -13,6 +13,7 @@ import {
   type ModelInfo,
   type SlashCommand,
 } from '@anthropic-ai/claude-agent-sdk';
+import { AgentTasks } from './agents.ts';
 import { imageStore } from './images.ts';
 import { UPLOADS_DIR, childEnv } from './config.ts';
 import { readPlanUsage } from './claude-usage.ts';
@@ -102,6 +103,8 @@ export class PanelSession extends EventEmitter {
   waitingFor?: string;
   /** Modelo, esforço e modo vigentes; cada mudança vira um evento `settings`. */
   settings: { model?: string; effort?: string | null; permissionMode?: string } = {};
+  /** Subagentes deste processo; os de segundo plano seguem trabalhando com a sessão ociosa. */
+  readonly agents = new AgentTasks();
 
   private seq = 0;
   private readonly log: LoggedEvent[] = [];
@@ -139,6 +142,10 @@ export class PanelSession extends EventEmitter {
         systemPrompt: { type: 'preset', preset: 'claude_code' },
         settingSources: ['user', 'project', 'local'],
         includePartialMessages: true,
+        // O celular mostra o que cada subagente faz: falas e raciocínio também, não só as ferramentas,
+        // e de tempos em tempos uma linha do Claude Code resumindo o andamento.
+        forwardSubagentText: true,
+        agentProgressSummaries: true,
         canUseTool: this.canUseTool,
         env: childEnv(),
         stderr: (data) => {
@@ -258,10 +265,10 @@ export class PanelSession extends EventEmitter {
     await this.q.interrupt();
   }
 
-  /** Devolve a sessão ao PC: encerra o processo headless, desde que esteja ocioso. */
+  /** Devolve a sessão ao PC: encerra o processo headless, desde que esteja ocioso (sem subagentes trabalhando). */
   async release(): Promise<void> {
-    if (this.state === 'running' || this.state === 'waiting') {
-      throw new HttpError(409, 'session_busy', { state: this.state });
+    if (this.state === 'running' || this.state === 'waiting' || this.agents.active) {
+      throw new HttpError(409, 'session_busy', { state: this.state, agents: this.agents.active });
     }
     await this.shutdown();
   }
@@ -312,6 +319,7 @@ export class PanelSession extends EventEmitter {
           requestId,
           toolName,
           input,
+          toolUseId: opts.toolUseID,
           title: opts.title,
           decisionReason: opts.decisionReason,
           blockedPath: opts.blockedPath,
@@ -391,6 +399,11 @@ export class PanelSession extends EventEmitter {
     const { events, delta } = fromSdkMessage(msg, sink);
     for (const ev of events) this.record(ev);
     if (delta) this.emit('delta', delta);
+
+    const working = this.agents.active;
+    for (const ev of this.agents.fromMessage(msg)) this.record(ev);
+    // Subagente começou ou terminou: a lista de sessões mostra quantos trabalham.
+    if (this.agents.active !== working) this.emit('state');
   }
 
   private updateSettings(patch: PanelSession['settings']): void {

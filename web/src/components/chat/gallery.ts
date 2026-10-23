@@ -1,6 +1,7 @@
 import { createContext, useContext } from 'react'
 import { imageUrl } from '@/lib/api'
 import type { Item } from './items'
+import { toolsIn } from './turn'
 
 /**
  * Imagens da conversa por quem mandou, na ordem do chat: tocar numa abre a tela cheia passando
@@ -17,9 +18,8 @@ export function galleryOf(items: Item[], sessionId: string): Gallery {
   for (const item of items) {
     if (item.type === 'user') for (const key of item.images ?? []) gallery.mine.push(imageUrl(sessionId, key))
     if (item.type !== 'activity') continue
-    for (const entry of item.entries) {
-      if (entry.kind === 'tool') for (const key of entry.result?.images ?? []) gallery.claude.push(imageUrl(sessionId, key))
-    }
+    // Inclui os prints dos subagentes, que ficam dentro da chamada que os criou.
+    for (const tool of toolsIn(item.entries)) for (const key of tool.result?.images ?? []) gallery.claude.push(imageUrl(sessionId, key))
   }
   return gallery
 }

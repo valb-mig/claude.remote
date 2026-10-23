@@ -3,6 +3,9 @@ import type { ImageSink, StoredImage } from './images.ts';
 
 export type SessionState = 'starting' | 'running' | 'waiting' | 'idle' | 'exited';
 
+export type AgentStatus = 'running' | 'completed' | 'failed' | 'stopped';
+export type AgentUsage = { tokens: number; toolUses: number; durationMs: number };
+
 /** Pergunta de múltipla escolha feita pelo Claude (ferramenta AskUserQuestion). */
 export type Question = {
   question: string;
@@ -20,7 +23,7 @@ export type PanelEvent =
   | { kind: 'user'; text: string; images?: string[]; clientId?: string }
   | { kind: 'notice'; text: string }
   | { kind: 'assistant'; text: string; parentToolUseId?: string | null }
-  | { kind: 'thinking'; text: string }
+  | { kind: 'thinking'; text: string; parentToolUseId?: string | null }
   | { kind: 'tool_use'; id: string; name: string; input: unknown; parentToolUseId?: string | null }
   | { kind: 'tool_result'; toolUseId: string; isError: boolean; text: string; images?: string[] }
   /** Modelo, esforço e modo de permissão vigentes (no início de cada turno e a cada mudança). */
@@ -33,6 +36,8 @@ export type PanelEvent =
       requestId: string;
       toolName: string;
       input: unknown;
+      /** Chamada que pede aprovação: o `parentToolUseId` dela diz se veio de um subagente. */
+      toolUseId?: string;
       title?: string;
       decisionReason?: string;
       blockedPath?: string;
@@ -45,6 +50,25 @@ export type PanelEvent =
       requestId: string;
       decision: 'answered' | 'declined' | 'cancelled';
       answers?: Record<string, string>;
+    }
+  /**
+   * Novidade de um subagente, ligada à chamada da ferramenta Agent que o criou. Traz só o que
+   * mudou; o celular junta tudo num nó do grafo de agentes.
+   */
+  | {
+      kind: 'agent';
+      toolUseId: string;
+      agentId?: string;
+      status?: AgentStatus;
+      background?: boolean;
+      /** O que ele está fazendo agora, em uma linha (ex.: "Reading src/app.ts"). */
+      activity?: string;
+      /** Resumo periódico feito pelo Claude Code do que ele vem fazendo. */
+      summary?: string;
+      usage?: AgentUsage;
+      /** Relatório final, quando termina. */
+      result?: string;
+      error?: string;
     }
   | { kind: 'result'; ok: boolean; subtype: string; durationMs: number; costUsd?: number; turns: number }
   | { kind: 'exit'; error?: string };
@@ -86,25 +110,46 @@ function tag(name: string, text: string): string | undefined {
   return text.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`))?.[1]?.trim();
 }
 
+const AGENT_STATUS = new Set<string>(['completed', 'failed', 'stopped']);
+
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", '#39': "'" };
+/** O aviso vem em XML: `&&` de um comando chega como `&amp;&amp;`. */
+const unescapeXml = (text: string) => text.replace(/&(amp|lt|gt|quot|apos|#39);/g, (_, name: string) => ENTITIES[name]!);
+
+/**
+ * Aviso de tarefa em segundo plano que terminou. Se a tarefa era um subagente, vem junto a
+ * novidade dele, com o relatório final (no histórico salvo é o único lugar onde ele aparece).
+ */
+function taskNotification(text: string): PanelEvent[] {
+  const summary = tag('summary', text);
+  const notice: PanelEvent = { kind: 'notice', text: summary ? unescapeXml(summary) : 'Tarefa em segundo plano terminou' };
+  const toolUseId = tag('tool-use-id', text);
+  const status = tag('status', text) ?? '';
+  if (!toolUseId || !AGENT_STATUS.has(status)) return [notice];
+  const result = tag('result', text);
+  return [
+    notice,
+    { kind: 'agent', toolUseId, agentId: tag('task-id', text), status: status as AgentStatus, result: result ? clip(unescapeXml(result)) : undefined },
+  ];
+}
+
 /**
  * Textos "de usuário" que na verdade são injetados pelo Claude Code (avisos de tarefas,
  * saída de comandos locais, lembretes) viram `notice` ou somem; o resto é prompt real.
  */
-function userTextEvent(raw: string): PanelEvent | null {
+function userTextEvents(raw: string): PanelEvent[] {
   const text = raw.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();
-  if (!text || text.startsWith('Caveat:')) return null;
-  if (text.startsWith('<task-notification>')) {
-    return { kind: 'notice', text: tag('summary', text) ?? 'Tarefa em segundo plano terminou' };
-  }
+  if (!text || text.startsWith('Caveat:')) return [];
+  if (text.startsWith('<task-notification>')) return taskNotification(text);
   const command = tag('command-name', text);
-  if (command) return { kind: 'user', text: [command, tag('command-args', text)].filter(Boolean).join(' ') };
-  if (text.startsWith('<bash-input>')) return { kind: 'user', text: `! ${tag('bash-input', text) ?? ''}` };
+  if (command) return [{ kind: 'user', text: [command, tag('command-args', text)].filter(Boolean).join(' ') }];
+  if (text.startsWith('<bash-input>')) return [{ kind: 'user', text: `! ${tag('bash-input', text) ?? ''}` }];
   if (/^<(local-command|bash)-(stdout|stderr)>/.test(text)) {
     const out = tag('local-command-stdout', text) ?? tag('bash-stdout', text) ?? tag('local-command-stderr', text) ?? tag('bash-stderr', text);
-    return out ? { kind: 'notice', text: clip(out) } : null;
+    return out ? [{ kind: 'notice', text: clip(out) }] : [];
   }
-  if (text.startsWith('[Request interrupted by user')) return { kind: 'notice', text: 'Interrompido pelo usuário' };
-  return { kind: 'user', text };
+  if (text.startsWith('[Request interrupted by user')) return [{ kind: 'notice', text: 'Interrompido pelo usuário' }];
+  return [{ kind: 'user', text }];
 }
 
 /** Converte o conteúdo de uma mensagem da API (user/assistant) em eventos do painel. */
@@ -115,7 +160,7 @@ export function fromContent(
   sink?: ImageSink,
 ): PanelEvent[] {
   if (typeof content === 'string') {
-    if (role === 'user') return [userTextEvent(content)].filter((e): e is PanelEvent => e !== null);
+    if (role === 'user') return userTextEvents(content);
     return content.trim() ? [{ kind: 'assistant', text: content, parentToolUseId }] : [];
   }
   if (!Array.isArray(content)) return [];
@@ -125,15 +170,14 @@ export function fromContent(
       case 'text': {
         const text = String(b.text ?? '');
         if (role === 'user') {
-          const ev = userTextEvent(text);
-          if (ev) out.push(ev);
+          out.push(...userTextEvents(text));
         } else if (text.trim()) {
           out.push({ kind: 'assistant', text, parentToolUseId });
         }
         break;
       }
       case 'thinking':
-        if (String(b.thinking ?? '').trim()) out.push({ kind: 'thinking', text: clip(String(b.thinking)) });
+        if (String(b.thinking ?? '').trim()) out.push({ kind: 'thinking', text: clip(String(b.thinking)), parentToolUseId });
         break;
       case 'tool_use':
         out.push({ kind: 'tool_use', id: String(b.id), name: String(b.name), input: b.input, parentToolUseId });

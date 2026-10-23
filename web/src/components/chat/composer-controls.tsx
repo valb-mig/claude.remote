@@ -26,6 +26,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { api } from '@/lib/api'
+import { useMachine } from '@/lib/machines'
 import type { ContextUsage, ModelOption, RunOptions, SessionSettings } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -68,18 +69,20 @@ const tokens = new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFrac
 
 // ---- modelos ----
 
-let modelsRequest: Promise<ModelOption[]> | null = null
+const modelsRequests = new Map<string, Promise<ModelOption[]>>()
 
-/** Lista de modelos (uma consulta por carregamento do app). */
+/** Lista de modelos da máquina da conversa (uma consulta por máquina por carregamento do app). */
 export function useModels(): ModelOption[] | null {
+  const machine = useMachine()
   const [models, setModels] = useState<ModelOption[] | null>(null)
   useEffect(() => {
-    modelsRequest ??= api.models()
-    modelsRequest.then(setModels, () => {
-      modelsRequest = null
+    let request = modelsRequests.get(machine)
+    if (!request) modelsRequests.set(machine, (request = api.models(machine)))
+    request.then(setModels, () => {
+      modelsRequests.delete(machine)
       setModels([])
     })
-  }, [])
+  }, [machine])
   return models
 }
 

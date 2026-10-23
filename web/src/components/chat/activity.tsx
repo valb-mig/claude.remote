@@ -21,6 +21,8 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { createElement } from 'react'
+import { AgentRow } from '@/components/agents/agent-row'
+import { useAgents } from '@/components/agents/model'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ImageThumb } from '@/components/image-viewer'
 import { Markdown } from '@/components/markdown'
@@ -174,9 +176,13 @@ function ThinkingRow({ text }: { text: string }) {
 
 /** Bloco de eventos de execução, visualmente separado das mensagens. */
 export function Activity({ sessionId, entries }: { sessionId: string; entries: ActivityEntry[] }) {
+  const agents = useAgents()
   return (
     <div className="rounded-lg border bg-muted/30 p-1">
       {entries.map((entry) => {
+        // Subagente: uma linha com o andamento; o que ele fez fica no painel dele.
+        const agent = entry.kind === 'tool' && entry.inner ? agents?.tree.byId.get(entry.use.id) : undefined
+        if (agent) return <AgentRow key={entry.key} node={agent} onOpen={() => agents!.open(agent.id)} />
         if (entry.kind === 'tool') return <ToolRow key={entry.key} sessionId={sessionId} use={entry.use} result={entry.result} />
         if (entry.kind === 'thinking') return <ThinkingRow key={entry.key} text={entry.text} />
         return (

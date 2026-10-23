@@ -5,18 +5,20 @@ import websocket from '@fastify/websocket';
 import Fastify, { LogController } from 'fastify';
 import type { WebSocket } from 'ws';
 import { mkdir } from 'node:fs/promises';
+import { agentTranscript } from './agents.ts';
 import type { Attachment } from './attachments.ts';
-import { HOST, PORT, UPLOADS_DIR, WEB_DIST } from './config.ts';
+import { HOST, MACHINE_NAME, PORT, UPLOADS_DIR, WEB_DIST } from './config.ts';
 import { HttpError } from './errors.ts';
 import { listDir, rawProjectFile, readProjectFile } from './explorer.ts';
 import { gitDiff, gitStatus } from './git.ts';
 import type { LoggedEvent } from './events.ts';
 import { accessGuard, loadAccessPolicy, refreshTailnet } from './guard.ts';
 import { LiveRegistry } from './live.ts';
+import { MachineDirectory } from './machines.ts';
 import { Manager } from './manager.ts';
 import { MetaStore } from './meta.ts';
 import { Notifier } from './notifier.ts';
-import { PushService, type PushPrefs, type PushSubscriptionInput } from './push.ts';
+import { PushService, type PushPayload, type PushPrefs, type PushSubscriptionInput, type SendOptions } from './push.ts';
 import { SystemMonitor } from './system.ts';
 import { thumbnail } from './thumbs.ts';
 import { RESTART_EXIT_CODE, Updater, saveResume, takeResume } from './updater.ts';
@@ -29,7 +31,11 @@ const manager = new Manager(live, meta);
 const monitor = new SystemMonitor(() => manager.planUsage());
 monitor.on('error', (err) => app.log.warn({ err }, 'falha ao amostrar o sistema'));
 const policy = await loadAccessPolicy();
-const push = new PushService();
+// Outras máquinas suas com o Claude Remote: o app junta as conversas, e os avisos daqui vão para elas.
+const machines = new MachineDirectory(policy);
+void machines.refresh();
+setInterval(() => void machines.list(), 15_000).unref();
+const push = new PushService(() => machines.bases());
 await push.load();
 push.on('error', (err) => app.log.warn({ err }, 'falha ao enviar notificação'));
 new Notifier(manager, live, push);
@@ -75,7 +81,16 @@ type RunBody = { model?: string; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 
 type IdParams = { id: string };
 
 const startedAt = Date.now();
-app.get('/api/health', async () => ({ ok: true, tailnetHost: policy.tailnetHost ?? null, startedAt, home: homedir() }));
+app.get('/api/health', async () => ({
+  ok: true,
+  name: MACHINE_NAME,
+  tailnetHost: policy.tailnetHost ?? null,
+  startedAt,
+  home: homedir(),
+}));
+
+/** As outras máquinas suas com o Claude Remote, para o app conectar em todas. */
+app.get('/api/machines', async () => ({ name: MACHINE_NAME, machines: await machines.list() }));
 
 app.get('/api/sessions', async () => manager.catalog());
 
@@ -87,6 +102,13 @@ app.get<{ Params: IdParams; Querystring: { limit?: number } }>(
   '/api/sessions/:id/history',
   { schema: { querystring: { type: 'object', properties: { limit: { type: 'integer', minimum: 1, maximum: 2000 } } } } },
   async (req) => manager.history(req.params.id, req.query.limit),
+);
+
+/** O que um subagente da conversa fez, do transcript salvo (ver agents.ts). */
+app.get<{ Params: IdParams & { toolUseId: string }; Querystring: { agentId?: string } }>(
+  '/api/sessions/:id/agents/:toolUseId',
+  { schema: { querystring: { type: 'object', properties: { agentId: { type: 'string', maxLength: 64 } } } } },
+  async (req) => agentTranscript(req.params.id, req.params.toolUseId, req.query.agentId),
 );
 
 app.post<{ Body: RunBody & { cwd?: string; prompt: string; title?: string; attachments?: Attachment[] } }>(
@@ -361,6 +383,46 @@ app.post<{ Body: { endpoint: string } }>('/api/push/test', endpointBody, async (
   await push.test(req.body.endpoint);
   return { ok: true };
 });
+
+// Aviso de outra máquina sua: entrega aos aparelhos inscritos aqui, sem repassar de novo.
+app.post<{ Body: { payload: PushPayload; opts: SendOptions } }>(
+  '/api/push/relay',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['payload', 'opts'],
+        properties: {
+          payload: {
+            type: 'object',
+            required: ['title', 'body', 'tag', 'url', 'ts'],
+            properties: {
+              title: { type: 'string', maxLength: 200 },
+              body: { type: 'string', maxLength: 2000 },
+              tag: { type: 'string', maxLength: 200 },
+              url: { type: 'string', pattern: '^/', maxLength: 500 },
+              ts: { type: 'number' },
+            },
+          },
+          opts: {
+            type: 'object',
+            required: ['needs', 'urgency', 'ttl'],
+            properties: {
+              needs: { type: 'array', items: { type: 'string', enum: ['done', 'pc'] } },
+              urgency: { type: 'string', enum: ['very-low', 'low', 'normal', 'high'] },
+              ttl: { type: 'number', minimum: 0, maximum: 2_419_200 },
+              topic: { type: 'string', maxLength: 32 },
+            },
+          },
+        },
+      },
+    },
+  },
+  async (req) => {
+    await push.notifyHere(req.body.payload, req.body.opts);
+    return { ok: true };
+  },
+);
 
 // ---- WebSocket: catálogo e eventos em tempo real ----
 
