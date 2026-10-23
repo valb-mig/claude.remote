@@ -5,6 +5,15 @@ export type CatalogState = 'running' | 'waiting' | 'idle' | 'stopped';
 export type PendingKind = 'approval' | 'question';
 export type AgentTaskStatus = 'running' | 'completed' | 'failed' | 'stopped';
 export type AgentUsage = { tokens: number; toolUses: number; durationMs: number };
+/** Tarefa em segundo plano viva (server/src/tasks.ts). `type`: local_bash (comando ou monitor), local_agent, local_workflow… */
+export type BackgroundTask = {
+  taskId: string;
+  toolUseId?: string;
+  type: string;
+  description: string;
+  subagentType?: string;
+  startedAt: number;
+};
 
 export type Question = {
   question: string;
@@ -57,6 +66,8 @@ export type PanelEvent =
       result?: string;
       error?: string;
     }
+  /** Tarefas em segundo plano vivas, a lista inteira a cada mudança. */
+  | { kind: 'tasks'; tasks: BackgroundTask[] }
   | { kind: 'result'; ok: boolean; subtype: string; durationMs: number; costUsd?: number; turns: number }
   | { kind: 'exit'; error?: string };
 
@@ -75,6 +86,8 @@ export type CatalogEntry = {
   pending?: { requestId: string; kind: PendingKind }[];
   /** Subagentes trabalhando agora (só sessões do painel). */
   agents?: number;
+  /** Outras tarefas em segundo plano (monitores, comandos): o turno acabou, mas o Claude vai voltar. */
+  tasks?: { type: string; description: string }[];
   pinned?: boolean;
   /** Máquina da conversa, posta pelo app ao juntar as de todas (ver machines.ts); `''` é a desta página. */
   machine?: string;

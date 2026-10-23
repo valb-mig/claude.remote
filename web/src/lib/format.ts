@@ -38,6 +38,8 @@ export function stateInfo(state: CatalogState | SessionState | undefined, waitin
   switch (state) {
     case 'running':
     case 'starting':
+      // Turno acabou, mas algo roda em segundo plano (monitor, comando) e vai trazer o Claude de volta.
+      if (waitingFor === 'background') return { label: 'Em segundo plano', tone: 'running' }
       return { label: 'Executando', tone: 'running' }
     case 'waiting':
       if (waitingFor === 'permission prompt') return { label: 'Aguardando aprovação', tone: 'attention' }
@@ -79,6 +81,10 @@ export function toolSummary(name: string, input: Input): string {
       return `${Array.isArray(input.todos) ? input.todos.length : 0} tarefas`
     case 'Skill':
       return str(input.skill)
+    case 'Monitor':
+      return str(input.description) || str(input.command).split('\n')[0]
+    case 'ToolSearch':
+      return str(input.query).replace(/^select:/, '')
     case 'ExitPlanMode':
       return 'plano pronto para revisão'
     case 'AskUserQuestion':

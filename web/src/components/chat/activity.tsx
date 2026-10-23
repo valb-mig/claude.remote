@@ -12,6 +12,7 @@ import {
   Loader2,
   MessageCircleQuestion,
   Plug,
+  Radar,
   Search,
   Sparkles,
   SquareTerminal,
@@ -47,6 +48,8 @@ const ICONS: Record<string, LucideIcon> = {
   Task: Bot,
   TodoWrite: ListTodo,
   Skill: Sparkles,
+  Monitor: Radar,
+  ToolSearch: Search,
   ExitPlanMode: ClipboardList,
   AskUserQuestion: MessageCircleQuestion,
 }

@@ -86,6 +86,10 @@ export const api = {
   settings: (id: string, body: RunOptions) => post(`${sid(id)}/settings`, body),
   context: (id: string) => request<ContextUsage>('GET', `${sid(id)}/context`),
   models: (m: string) => request<ModelOption[]>('GET', `${at(m)}/models`),
+  /** Tarefa em segundo plano (monitor, comando): o fim da saída e parar. */
+  taskOutput: (id: string, taskId: string) =>
+    request<{ output: string; totalBytes: number }>('GET', `${sid(id)}/tasks/${encodeURIComponent(taskId)}/output`),
+  stopTask: (id: string, taskId: string) => post(`${sid(id)}/tasks/${encodeURIComponent(taskId)}/stop`),
   approve: (id: string, requestId: string, body: { allow: boolean; always?: boolean; message?: string }) =>
     post(`${sid(id)}/approvals/${requestId}`, body),
   answer: (id: string, requestId: string, body: { answers?: Record<string, string>; decline?: boolean }) =>
@@ -114,6 +118,10 @@ export function errorMessage(err: unknown): string {
       return err.details.agents
         ? 'Ainda há subagentes trabalhando. Aguarde terminarem para liberar.'
         : 'A sessão ainda está trabalhando. Interrompa ou aguarde para liberar.'
+    case 'task_not_found':
+      return 'Essa tarefa não está mais rodando.'
+    case 'task_output_unsupported':
+      return 'Esta versão do Claude Code não mostra a saída da tarefa.'
     case 'whisper_unavailable':
       return 'O Whisper não está instalado no PC.'
     case 'transcribe_failed':

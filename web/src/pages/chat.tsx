@@ -277,8 +277,18 @@ export function ChatPage({ id }: { id: string }) {
   const agents = useMemo(() => agentTree(items, panelOpen || owner === 'pc'), [items, panelOpen, owner])
   const agentsContext = useMemo(() => ({ tree: agents, open: setAgentId }), [agents])
   const agentsWorking = agents.count.running + agents.count.waiting
-  // Turno encerrado com subagentes em segundo plano: a conversa ainda trabalha (como na lista de conversas).
-  const shownState = state === 'idle' && agentsWorking ? 'running' : state
+  // O que roda em segundo plano agora (monitores, comandos, subagentes): a última lista do processo do painel.
+  const background = useMemo(() => {
+    if (!panelOpen) return []
+    const last = view.events.findLast((e) => e.kind === 'tasks')
+    return last?.kind === 'tasks' ? last.tasks : []
+  }, [panelOpen, view.events])
+  // Chamadas de ferramenta, para o cartão de segundo plano mostrar o comando e o tipo de cada tarefa.
+  const uses = useMemo(() => new Map(events.flatMap((e) => (e.kind === 'tool_use' ? [[e.id, e] as const] : []))), [events])
+  // Turno encerrado com algo em segundo plano: a conversa ainda trabalha (como na lista de conversas).
+  const inBackground = state === 'idle' && background.length > 0
+  const shownState = state === 'idle' && (agentsWorking || inBackground) ? 'running' : state
+  const shownWaiting = inBackground ? 'background' : waitingFor
   const outbox = useOutbox((s) => s.items)
   const queued = useMemo(() => {
     // O evento da mensagem costuma chegar pelo WebSocket antes da resposta do envio: aí ela já saiu da fila.
@@ -362,7 +372,7 @@ export function ChatPage({ id }: { id: string }) {
               )}
               {owner === 'pc' && <Monitor className="size-3 shrink-0" />}
               {owner === 'panel' && <Smartphone className="size-3 shrink-0" />}
-              <StateBadge state={shownState} waitingFor={waitingFor} className="h-5 shrink-0 px-1.5 text-[10px]" />
+              <StateBadge state={shownState} waitingFor={shownWaiting} className="h-5 shrink-0 px-1.5 text-[10px]" />
             </div>
           </div>
           {speechSupported && (
@@ -504,6 +514,8 @@ export function ChatPage({ id }: { id: string }) {
                     actionable={panelOpen}
                     streaming={view.streaming}
                     working={working}
+                    background={background}
+                    uses={uses}
                     cwd={entry?.cwd}
                   />
                 </>
@@ -588,7 +600,7 @@ export function ChatPage({ id }: { id: string }) {
         <SummarySheet sessionId={id} events={events} cwd={entry?.cwd} open={summaryOpen} onOpenChange={setSummaryOpen} />
         <AgentsSheet
           tree={agents}
-          rootLabel={stateInfo(shownState, waitingFor).label}
+          rootLabel={stateInfo(shownState, shownWaiting).label}
           open={agentsOpen}
           onOpenChange={setAgentsOpen}
           onOpenAgent={setAgentId}
