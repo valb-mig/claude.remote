@@ -30,6 +30,12 @@ export const EXTRA_ORIGINS = (env.EXTRA_ORIGINS ?? '').split(',').filter(Boolean
 // teste: `http://127.0.0.1:7338`), separadas por ','.
 export const EXTRA_MACHINES = (env.EXTRA_MACHINES ?? '').split(',').filter(Boolean);
 
+// Ditado pelo Whisper (whisper.cpp) para navegadores sem reconhecimento de voz, como o Firefox:
+// o binário `whisper-cli` e o modelo (ver transcribe.ts e o README).
+const WHISPER_DIR = join(homedir(), '.local', 'share', 'claude-remote', 'whisper');
+export const WHISPER_CLI = env.WHISPER_CLI ?? join(WHISPER_DIR, 'whisper.cpp', 'build', 'bin', 'whisper-cli');
+export const WHISPER_MODEL = env.WHISPER_MODEL ?? join(WHISPER_DIR, 'models', 'ggml-small-q5_1.bin');
+
 // Logins Tailscale autorizados; vazio = detectar o dono deste nó.
 export const ALLOWED_LOGINS = (env.ALLOWED_LOGINS ?? '').split(',').filter(Boolean);
 

@@ -21,6 +21,7 @@ import { Notifier } from './notifier.ts';
 import { PushService, type PushPayload, type PushPrefs, type PushSubscriptionInput, type SendOptions } from './push.ts';
 import { SystemMonitor } from './system.ts';
 import { thumbnail } from './thumbs.ts';
+import { MAX_AUDIO_BYTES, transcribe, whisperAvailable } from './transcribe.ts';
 import { RESTART_EXIT_CODE, Updater, saveResume, takeResume } from './updater.ts';
 
 await mkdir(UPLOADS_DIR, { recursive: true });
@@ -102,6 +103,23 @@ app.get<{ Params: IdParams; Querystring: { limit?: number } }>(
   '/api/sessions/:id/history',
   { schema: { querystring: { type: 'object', properties: { limit: { type: 'integer', minimum: 1, maximum: 2000 } } } } },
   async (req) => manager.history(req.params.id, req.query.limit),
+);
+
+/** Ditado pelo Whisper no PC, para navegadores sem reconhecimento de voz, como o Firefox (ver transcribe.ts). */
+app.get('/api/transcribe', async () => ({ available: whisperAvailable() }));
+
+app.post<{ Body: { audio: string } }>(
+  '/api/transcribe',
+  {
+    // WAV em base64 dentro do JSON, como os anexos: o guarda só aceita JSON em POST.
+    bodyLimit: Math.ceil(MAX_AUDIO_BYTES * 1.4),
+    schema: { body: { type: 'object', required: ['audio'], properties: { audio: { type: 'string', minLength: 1 } } } },
+  },
+  async (req) => {
+    const wav = Buffer.from(req.body.audio, 'base64');
+    if (wav.length > MAX_AUDIO_BYTES) throw new HttpError(413, 'audio_too_long');
+    return { text: await transcribe(wav) };
+  },
 );
 
 /** O que um subagente da conversa fez, do transcript salvo (ver agents.ts). */
