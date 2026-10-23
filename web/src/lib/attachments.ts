@@ -16,7 +16,7 @@ const MAX_FILE_BYTES = 25 * 1024 * 1024
 const MAX_TOTAL_BASE64 = 38 * 1024 * 1024
 const RASTER = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
 
-function blobToBase64(blob: Blob): Promise<string> {
+export function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => {
