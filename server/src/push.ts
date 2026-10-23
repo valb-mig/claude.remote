@@ -49,6 +49,18 @@ export class PushService extends EventEmitter {
   private data: PushFile = { vapid: { publicKey: '', privateKey: '' }, subscriptions: [] };
   private writing = Promise.resolve();
 
+  /**
+   * `peers`: endereços das outras máquinas suas com o Claude Remote (ver machines.ts). O celular só
+   * se inscreve na máquina de onde o app foi instalado; os avisos daqui vão também para elas, e a
+   * que tiver a inscrição entrega.
+   */
+  private peers: () => string[];
+
+  constructor(peers: () => string[] = () => []) {
+    super();
+    this.peers = peers;
+  }
+
   async load(): Promise<void> {
     try {
       const saved = JSON.parse(await readFile(FILE, 'utf8')) as Partial<PushFile>;
@@ -68,7 +80,7 @@ export class PushService extends EventEmitter {
   }
 
   get hasSubscribers(): boolean {
-    return this.data.subscriptions.length > 0;
+    return this.data.subscriptions.length > 0 || this.peers().length > 0;
   }
 
   /** Cadastra o aparelho ou atualiza as preferências dele. */
@@ -87,10 +99,29 @@ export class PushService extends EventEmitter {
     await this.save();
   }
 
-  /** Envia a todos os aparelhos que querem este tipo de aviso; falhas viram evento `error`. */
+  /** Envia aos aparelhos inscritos aqui e repassa às outras máquinas; falhas viram evento `error`. */
   async notify(payload: PushPayload, opts: SendOptions): Promise<void> {
+    await Promise.all([this.notifyHere(payload, opts), ...this.peers().map((base) => this.relay(base, payload, opts))]);
+  }
+
+  /** Só aos aparelhos inscritos nesta máquina (aviso repassado por outra; não repassa de novo). */
+  async notifyHere(payload: PushPayload, opts: SendOptions): Promise<void> {
     const targets = this.data.subscriptions.filter((s) => opts.needs.every((p) => s.prefs[p]));
     await Promise.all(targets.map((s) => this.deliver(s, payload, opts).catch((err: unknown) => this.emit('error', err))));
+  }
+
+  private async relay(base: string, payload: PushPayload, opts: SendOptions): Promise<void> {
+    try {
+      const res = await fetch(`${base}/api/push/relay`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ payload, opts }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) throw new Error(`repasse para ${base}: HTTP ${res.status}`);
+    } catch (err) {
+      this.emit('error', err);
+    }
   }
 
   /** Aviso de teste para um aparelho; o erro do serviço de push volta para a tela. */

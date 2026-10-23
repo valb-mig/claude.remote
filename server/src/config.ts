@@ -1,11 +1,14 @@
 import { createRequire } from 'node:module';
-import { homedir } from 'node:os';
+import { homedir, hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const env = process.env;
 
 export const PORT = Number(env.PORT ?? 7337);
+
+// Nome desta máquina no app quando há várias (ver machines.ts); por padrão, o do sistema.
+export const MACHINE_NAME = env.MACHINE_NAME ?? hostname();
 // Só escuta localmente; o acesso remoto entra via `tailscale serve`.
 export const HOST = '127.0.0.1';
 
@@ -22,6 +25,10 @@ export const PROJECT_ROOTS = (env.PROJECT_ROOTS ?? join(homedir(), 'Projects')).
 
 // Origens extras aceitas pelo guard (ex.: Vite em dev), separadas por ','.
 export const EXTRA_ORIGINS = (env.EXTRA_ORIGINS ?? '').split(',').filter(Boolean);
+
+// Máquinas extras com o Claude Remote, além das achadas no Tailscale (ex.: outra instância em
+// teste: `http://127.0.0.1:7338`), separadas por ','.
+export const EXTRA_MACHINES = (env.EXTRA_MACHINES ?? '').split(',').filter(Boolean);
 
 // Logins Tailscale autorizados; vazio = detectar o dono deste nó.
 export const ALLOWED_LOGINS = (env.ALLOWED_LOGINS ?? '').split(',').filter(Boolean);
