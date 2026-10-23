@@ -2,20 +2,26 @@ import { Pause, Play, X } from 'lucide-react'
 import { Slider } from 'radix-ui'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { pauseSpeech, resumeSpeech, seekSpeech, stopSpeaking, useSpeech } from '@/lib/speech'
+import { SPEEDS, pauseSpeech, resumeSpeech, seekSpeech, setSpeechRate, stopSpeaking, useSpeech } from '@/lib/speech'
+import { cn } from '@/lib/utils'
 
 const STEPS = 1000
 
+const speedLabel = (rate: number) => `${rate.toLocaleString('pt-BR')}x`
+
 /**
  * Barra da leitura em voz alta, em cima da caixa de mensagem, como a do Spotify: pausar e continuar,
- * a frase que está sendo lida e até onde já leu. Tocar ou arrastar na barra pula para outra frase.
+ * a frase que está sendo lida e até onde já leu. Tocar ou arrastar na barra pula para outra frase, e
+ * o botão de velocidade passa por 1x, 1,5x, 2x e 3x.
  */
 export function SpeechPlayer({ sessionId }: { sessionId: string }) {
   // Com conversas lado a lado, a barra aparece só na conversa que está sendo lida.
   const reading = useSpeech((s) => (s.reading?.key.startsWith(`${sessionId}:`) ? s.reading : null))
   // Enquanto arrasta, a barra segue o dedo; a leitura só pula ao soltar.
   const [dragging, setDragging] = useState<number | null>(null)
+  const rate = useSpeech((s) => s.rate)
   if (!reading) return null
+  const next = SPEEDS[(SPEEDS.indexOf(rate) + 1) % SPEEDS.length]!
   const value = dragging ?? reading.progress
   return (
     <div className="shrink-0 border-t bg-card px-3 py-2 compact:py-1">
@@ -49,6 +55,16 @@ export function SpeechPlayer({ sessionId }: { sessionId: string }) {
             />
           </Slider.Root>
         </div>
+        <Button
+          variant={rate === 1 ? 'ghost' : 'secondary'}
+          size="sm"
+          // Largura fixa: trocar de 1x para 1,5x não empurra a barra.
+          className={cn('w-12 shrink-0 px-0 tabular-nums', rate !== 1 && 'font-semibold')}
+          onClick={() => setSpeechRate(next)}
+          aria-label={`Velocidade ${speedLabel(rate)}: tocar para ${speedLabel(next)}`}
+        >
+          {speedLabel(rate)}
+        </Button>
         <Button variant="ghost" size="icon" className="shrink-0" onClick={stopSpeaking} aria-label="Fechar a leitura">
           <X />
         </Button>
