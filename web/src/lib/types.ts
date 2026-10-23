@@ -58,6 +58,8 @@ export type CatalogEntry = {
   pcKind?: 'interactive' | 'background';
   pending?: { requestId: string; kind: PendingKind }[];
   pinned?: boolean;
+  /** Máquina da conversa, posta pelo app ao juntar as de todas (ver machines.ts); `''` é a desta página. */
+  machine?: string;
 };
 
 export type RunOptions = {

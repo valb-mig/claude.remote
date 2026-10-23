@@ -147,14 +147,8 @@ export function speechUnits(markdown: string): Unit[] {
 // Leitura
 // ---------------------------------------------------------------------------
 
-// A lista de vozes chega depois de a página abrir; pedir cedo faz ela estar pronta no primeiro toque.
-synth?.getVoices()
-
-function portugueseVoice(): SpeechSynthesisVoice | undefined {
-  const voices = synth?.getVoices().filter((v) => /^pt[-_]BR$/i.test(v.lang)) ?? []
-  // No PC, a voz "Google" é a natural (a do sistema costuma ser robótica); no Android todas vêm do motor do aparelho.
-  return voices.find((v) => /google/i.test(v.name)) ?? voices.find((v) => v.default) ?? voices[0]
-}
+// A voz é a padrão do aparelho para pt-BR (no Android, a de Configurações › Texto para fala; no Linux,
+// a do speech-dispatcher): escolher outra por cima pegava vozes online que falham sem estar baixadas.
 
 const ERRORS: Partial<Record<SpeechSynthesisErrorCode, string>> = {
   'language-unavailable': 'O aparelho não tem voz em português. Instale em Configurações › Texto para fala.',
@@ -162,6 +156,8 @@ const ERRORS: Partial<Record<SpeechSynthesisErrorCode, string>> = {
   'synthesis-unavailable': 'O aparelho não tem um motor de texto para fala ativo.',
   'audio-busy': 'O áudio está ocupado por outro app.',
   'not-allowed': 'O navegador só deixa o app falar depois de um toque na tela. Toque em Ouvir.',
+  network: 'A voz do aparelho precisa de internet e não conseguiu falar.',
+  'synthesis-failed': 'O motor de voz do aparelho falhou (synthesis-failed). Confira a voz em Configurações › Texto para fala.',
 }
 
 // Cada interrupção (pausar, pular, outra mensagem) invalida os avisos da fala anterior.
@@ -212,8 +208,6 @@ function speakFrom(index: number, gen: number): void {
   const { text } = reading.units[index]
   const utterance = new SpeechSynthesisUtterance(text)
   utterance.lang = 'pt-BR'
-  const voice = portugueseVoice()
-  if (voice) utterance.voice = voice
   let startedAt = performance.now()
   let spokenChars = 0
   utterance.onstart = () => {
@@ -234,7 +228,13 @@ function speakFrom(index: number, gen: number): void {
     // Android cortando a fala com a tela apagada ou uma ligação. Fica pausado na frase atual.
     if (e.error === 'interrupted' || e.error === 'canceled') return pauseSpeech()
     stopSpeaking()
-    toast.error(ERRORS[e.error] ?? 'Não deu para ler em voz alta.')
+    toast.error(
+      e.error
+        ? (ERRORS[e.error] ?? `Não deu para ler em voz alta (${e.error}).`)
+        : // O Firefox não diz o motivo. No Linux, o caso comum é a ligação dele com o speech-dispatcher ter
+          // morrido quando o serviço reiniciou (ele não refaz): só fechar e abrir o navegador resolve.
+          'O navegador não conseguiu falar e não disse o motivo. No PC com Linux, feche e abra o navegador de novo.',
+    )
   }
   current = utterance
   patch({ index, playing: true, progress: progressAt(reading.units, index) })

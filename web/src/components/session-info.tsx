@@ -1,10 +1,13 @@
-import { Monitor, Pin, Smartphone } from 'lucide-react'
+import { Monitor, Pin, Server, Smartphone } from 'lucide-react'
 import { StateBadge } from '@/components/state-badge'
 import { projectName, relativeTime } from '@/lib/format'
+import { HOME, useMachines } from '@/lib/machines'
 import type { CatalogEntry } from '@/lib/types'
 
 /** Conteúdo de uma conversa numa lista: título, projeto, quando mexeu por último, estado e onde está aberta. */
 export function SessionInfo({ s }: { s: CatalogEntry }) {
+  // Com várias máquinas, cada conversa diz de qual é.
+  const machine = useMachines((m) => (m.machines.length > 1 ? m.machines.find((x) => x.id === (s.machine ?? HOME))?.name : undefined))
   return (
     <>
       <div className="min-w-0 flex-1">
@@ -14,6 +17,15 @@ export function SessionInfo({ s }: { s: CatalogEntry }) {
         </div>
         <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
           <span className="truncate">{projectName(s.cwd)}</span>
+          {machine && (
+            <>
+              <span>·</span>
+              <span className="flex shrink-0 items-center gap-0.5">
+                <Server className="size-3" />
+                {machine}
+              </span>
+            </>
+          )}
           <span>·</span>
           <span className="shrink-0">{relativeTime(s.lastModified)}</span>
         </div>

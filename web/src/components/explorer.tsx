@@ -20,6 +20,7 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { api, errorMessage, fileRawUrl } from '@/lib/api'
 import { formatSize } from '@/lib/attachments'
+import { useMachine } from '@/lib/machines'
 import { projectName, shortPath } from '@/lib/format'
 import type { FileView, TreeEntry } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -44,9 +45,10 @@ function TreeLevel({ cwd, path, depth, onOpenFile }: { cwd: string; path: string
   const [entries, setEntries] = useState<TreeEntry[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  const machine = useMachine()
   useEffect(() => {
-    api.tree(cwd, path).then(setEntries, (err) => setError(errorMessage(err)))
-  }, [cwd, path])
+    api.tree(machine, cwd, path).then(setEntries, (err) => setError(errorMessage(err)))
+  }, [machine, cwd, path])
 
   if (error) return <p className="py-1 text-xs text-red-600 dark:text-red-400" style={indent(depth + 1)}>{error}</p>
   if (!entries) {
@@ -113,6 +115,7 @@ function TextContent({ content, wrap }: { content: string; wrap: boolean }) {
 
 /** Visualizador de arquivo em tela cheia, só leitura. */
 function FileViewer({ cwd, path, onClose }: { cwd: string; path: string | null; onClose: () => void }) {
+  const machine = useMachine()
   const [view, setView] = useState<FileView | { kind: 'error'; message: string } | null>(null)
   const [wrap, setWrap] = useState(false)
   const [rendered, setRendered] = useState(false)
@@ -121,13 +124,13 @@ function FileViewer({ cwd, path, onClose }: { cwd: string; path: string | null; 
     if (!path) return
     setView(null)
     setRendered(false)
-    api.file(cwd, path).then(setView, (err) => setView({ kind: 'error', message: errorMessage(err) }))
-  }, [cwd, path])
+    api.file(machine, cwd, path).then(setView, (err) => setView({ kind: 'error', message: errorMessage(err) }))
+  }, [machine, cwd, path])
 
   const name = path?.split('/').pop() ?? ''
   const dir = path?.split('/').slice(0, -1).join('/')
   const markdown = /\.mdx?$/i.test(name) && view?.kind === 'text'
-  const raw = path ? fileRawUrl(cwd, path) : ''
+  const raw = path ? fileRawUrl(machine, cwd, path) : ''
 
   return (
     <Dialog open={path !== null} onOpenChange={(o) => !o && onClose()}>

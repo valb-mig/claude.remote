@@ -10,22 +10,36 @@ import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
 import { projectName } from '@/lib/format'
 import { useGitStatus, useHome } from '@/lib/hooks'
+import { HOME, MachineContext, newChatUrl, noteSession, useMachines } from '@/lib/machines'
 import type { RunOptions } from '@/lib/types'
+
+/** A nova conversa com a máquina escolhida (`?maquina=`) no contexto: `@`, comandos e arquivos vêm de lá. */
+export function NewChatPage() {
+  const machine = new URLSearchParams(useSearch()).get('maquina') ?? HOME
+  return (
+    <MachineContext value={machine}>
+      <NewChat machine={machine} />
+    </MachineContext>
+  )
+}
 
 /**
  * Conversa nova direto no formato de chat: a primeira mensagem (com modelo, modo, /, @ e anexos)
  * cria a sessão e leva ao chat dela.
  */
-export function NewChatPage() {
+function NewChat({ machine }: { machine: string }) {
   const cwd = new URLSearchParams(useSearch()).get('cwd') ?? undefined
-  const home = useHome()
+  const home = useHome(machine)
+  // Com várias máquinas, o cabeçalho diz em qual a conversa vai rodar.
+  const machineLabel = useMachines((s) => (s.machines.length > 1 ? s.machines.find((m) => m.id === machine)?.name : undefined))
   const [, navigate] = useLocation()
   const [pending, setPending] = useState<RunOptions>({})
   const [picker, setPicker] = useState(false)
   const [explorer, setExplorer] = useState(false)
   const [gitOpen, setGitOpen] = useState(false)
-  const git = useGitStatus(cwd, null)
-  const label = cwd ? projectName(cwd) : 'Sem projeto (~)'
+  const git = useGitStatus(machine, cwd, null)
+  const project = cwd ? projectName(cwd) : 'Sem projeto (~)'
+  const label = machineLabel ? `${project} · ${machineLabel}` : project
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -79,7 +93,9 @@ export function NewChatPage() {
         context={null}
         onChangeSettings={(patch) => setPending((p) => ({ ...p, ...patch }))}
         onSend={async (text, attachments) => {
-          const { sessionId } = await api.create({ cwd, prompt: text, attachments, ...pending })
+          const { sessionId } = await api.create(machine, { cwd, prompt: text, attachments, ...pending })
+          // Antes do catálogo da máquina chegar, a conversa já sabe para onde ir.
+          noteSession(sessionId, machine)
           navigate(`/s/${sessionId}`, { replace: true })
         }}
       />
@@ -87,7 +103,8 @@ export function NewChatPage() {
       <ProjectPicker
         open={picker}
         onOpenChange={setPicker}
-        onPick={(dir) => navigate(dir ? `/nova?cwd=${encodeURIComponent(dir)}` : '/nova', { replace: true })}
+        machine={machine}
+        onPick={(dir, m) => navigate(newChatUrl(dir, m), { replace: true })}
       />
       {cwd && <ExplorerSheet cwd={cwd} open={explorer} onOpenChange={setExplorer} />}
       {cwd && git.status && <GitSheet cwd={cwd} status={git.status} open={gitOpen} onOpenChange={setGitOpen} onRefresh={git.reload} />}

@@ -2,6 +2,7 @@ import { FileText, Folder, Slash } from 'lucide-react'
 import { useEffect, useImperativeHandle, useRef, useState, type ComponentProps, type Ref } from 'react'
 import { Textarea } from '@/components/ui/textarea'
 import { api } from '@/lib/api'
+import { useMachine } from '@/lib/machines'
 import type { CommandInfo } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -21,18 +22,20 @@ function activeToken(text: string, caret: number): Token | null {
 
 const commandCache = new Map<string, Promise<CommandInfo[]>>()
 
-/** Carrega (uma vez por projeto) a lista de comandos e skills. */
-export function loadCommands(cwd: string): Promise<CommandInfo[]> {
-  let list = commandCache.get(cwd)
+/** Carrega (uma vez por projeto em cada máquina) a lista de comandos e skills. */
+export function loadCommands(machine: string, cwd: string): Promise<CommandInfo[]> {
+  const key = `${machine}\n${cwd}`
+  let list = commandCache.get(key)
   if (!list) {
-    list = api.commands(cwd)
-    commandCache.set(cwd, list)
-    list.catch(() => commandCache.delete(cwd))
+    list = api.commands(machine, cwd)
+    commandCache.set(key, list)
+    list.catch(() => commandCache.delete(key))
   }
   return list
 }
 
 function useSuggestions(cwd: string | undefined, token: Token | null): Suggestion[] {
+  const machine = useMachine()
   const [items, setItems] = useState<Suggestion[]>([])
   const kind = token?.kind
   const query = token?.query ?? ''
@@ -45,7 +48,7 @@ function useSuggestions(cwd: string | undefined, token: Token | null): Suggestio
     let alive = true
     const q = query.toLowerCase()
     if (kind === '/') {
-      loadCommands(cwd).then(
+      loadCommands(machine, cwd).then(
         (list) => {
           if (!alive) return
           const matches = list.filter((c) => c.name.toLowerCase().includes(q))
@@ -59,7 +62,7 @@ function useSuggestions(cwd: string | undefined, token: Token | null): Suggestio
       }
     }
     const timer = setTimeout(() => {
-      api.files(cwd, query).then(
+      api.files(machine, cwd, query).then(
         (paths) => alive && setItems(paths.map((path) => ({ kind: 'file', path }))),
         () => alive && setItems([]),
       )
@@ -68,7 +71,7 @@ function useSuggestions(cwd: string | undefined, token: Token | null): Suggestio
       alive = false
       clearTimeout(timer)
     }
-  }, [cwd, kind, query])
+  }, [machine, cwd, kind, query])
 
   return items
 }
@@ -148,10 +151,11 @@ export function PromptInput({
   const [highlight, setHighlight] = useState(0)
   const suggestions = useSuggestions(cwd, token)
   const open = token !== null && suggestions.length > 0
+  const machine = useMachine()
 
   useEffect(() => {
-    if (cwd) void loadCommands(cwd).catch(() => {})
-  }, [cwd])
+    if (cwd) void loadCommands(machine, cwd).catch(() => {})
+  }, [machine, cwd])
 
   useEffect(() => setHighlight(0), [token?.kind, token?.query])
 

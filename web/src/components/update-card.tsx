@@ -38,7 +38,7 @@ function Warning({ children }: { children: React.ReactNode }) {
  * Atualizar o PC daqui: puxa a main do GitHub, instala, compila e reinicia o serviço. Durante o
  * reinício o servidor some por alguns segundos; quando volta, o app procura a versão nova.
  */
-export function UpdateCard() {
+export function UpdateCard({ machine }: { machine: string }) {
   const [status, setStatus] = useState<UpdateStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirm, setConfirm] = useState(false)
@@ -50,7 +50,7 @@ export function UpdateCard() {
 
   const load = useCallback(async () => {
     try {
-      const next = await api.update()
+      const next = await api.update(machine)
       setStatus(next)
       setError(null)
       if (next.job?.step === 'restart' && !next.job.done) setRestarting(true)
@@ -59,14 +59,14 @@ export function UpdateCard() {
       setError(errorMessage(err))
       return null
     }
-  }, [])
+  }, [machine])
 
   useEffect(() => {
-    api.update().then(setStatus, (err) => {
+    api.update(machine).then(setStatus, (err) => {
       if (err instanceof ApiError && err.status === 404) setMissing(true)
       else setError(errorMessage(err))
     })
-  }, [])
+  }, [machine])
 
   const job = status?.job
   const running = Boolean(job && !job.error && !job.done)
@@ -89,7 +89,7 @@ export function UpdateCard() {
   async function start() {
     setStarting(true)
     try {
-      setStatus(await api.startUpdate())
+      setStatus(await api.startUpdate(machine))
     } catch (err) {
       toast.error(errorMessage(err))
       void load()
@@ -100,7 +100,7 @@ export function UpdateCard() {
 
   async function restartNow() {
     try {
-      await api.restartNow()
+      await api.restartNow(machine)
       setRestarting(true)
     } catch (err) {
       toast.error(errorMessage(err))

@@ -1,6 +1,6 @@
+import { baseOf, machineOf } from './machines'
 import type {
   AttachmentPayload,
-  CatalogEntry,
   CommandInfo,
   ContextUsage,
   FileView,
@@ -26,8 +26,8 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(path, {
+async function request<T>(method: string, url: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(url, {
     method,
     headers: body === undefined ? {} : { 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -39,24 +39,26 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
 }
 
 const post = <T = { ok: true }>(path: string, body: unknown = {}, signal?: AbortSignal) => request<T>('POST', path, body, signal)
-const sid = (id: string) => `/api/sessions/${encodeURIComponent(id)}`
+// Cada conversa vai para a máquina dela; o resto, para a máquina pedida (ver machines.ts).
+const sid = (id: string) => `${baseOf(machineOf(id))}/api/sessions/${encodeURIComponent(id)}`
+const at = (machine: string) => `${baseOf(machine)}/api`
 const project = (cwd: string, path?: string) =>
   `cwd=${encodeURIComponent(cwd)}${path !== undefined ? `&path=${encodeURIComponent(path)}` : ''}`
 
 /** Arquivo do projeto como está (imagens, PDF), para abrir no navegador. */
-export const fileRawUrl = (cwd: string, path: string) => `/api/file/raw?${project(cwd, path)}`
+export const fileRawUrl = (m: string, cwd: string, path: string) => `${at(m)}/file/raw?${project(cwd, path)}`
 
 export const api = {
-  health: () => request<{ ok: boolean; tailnetHost: string | null; startedAt: number; home: string }>('GET', '/api/health'),
-  sessions: () => request<CatalogEntry[]>('GET', '/api/sessions'),
-  projects: () => request<string[]>('GET', '/api/projects'),
-  commands: (cwd: string) => request<CommandInfo[]>('GET', `/api/commands?cwd=${encodeURIComponent(cwd)}`),
-  files: (cwd: string, q: string) =>
-    request<string[]>('GET', `/api/files?cwd=${encodeURIComponent(cwd)}&q=${encodeURIComponent(q)}`),
+  health: (m: string) =>
+    request<{ ok: boolean; name?: string; tailnetHost: string | null; startedAt: number; home: string }>('GET', `${at(m)}/health`),
+  projects: (m: string) => request<string[]>('GET', `${at(m)}/projects`),
+  commands: (m: string, cwd: string) => request<CommandInfo[]>('GET', `${at(m)}/commands?cwd=${encodeURIComponent(cwd)}`),
+  files: (m: string, cwd: string, q: string) =>
+    request<string[]>('GET', `${at(m)}/files?cwd=${encodeURIComponent(cwd)}&q=${encodeURIComponent(q)}`),
   history: (id: string, limit = 300) => request<LoggedEvent[]>('GET', `${sid(id)}/history?limit=${limit}`),
 
-  create: (body: RunOptions & { cwd?: string; prompt: string; title?: string; attachments?: AttachmentPayload[] }) =>
-    post<{ sessionId: string }>('/api/sessions', body),
+  create: (m: string, body: RunOptions & { cwd?: string; prompt: string; title?: string; attachments?: AttachmentPayload[] }) =>
+    post<{ sessionId: string }>(`${at(m)}/sessions`, body),
   open: (id: string, body: RunOptions & { fork?: boolean } = {}) => post<{ sessionId: string }>(`${sid(id)}/open`, body),
   takeover: (id: string) => post<{ sessionId: string }>(`${sid(id)}/takeover`),
   release: (id: string) => post<{ resumeCommand: string }>(`${sid(id)}/release`),
@@ -67,17 +69,17 @@ export const api = {
   interrupt: (id: string) => post(`${sid(id)}/interrupt`),
   pin: (id: string, pinned: boolean) => post(`${sid(id)}/pin`, { pinned }),
   remove: (id: string) => post(`${sid(id)}/delete`),
-  tree: (cwd: string, path: string) => request<TreeEntry[]>('GET', `/api/tree?${project(cwd, path)}`),
-  file: (cwd: string, path: string) => request<FileView>('GET', `/api/file?${project(cwd, path)}`),
-  git: (cwd: string) => request<GitStatus | null>('GET', `/api/git?${project(cwd)}`),
-  gitDiff: (cwd: string, path: string) => request<{ diff: string }>('GET', `/api/git/diff?${project(cwd, path)}`),
-  update: () => request<UpdateStatus>('GET', '/api/update'),
-  startUpdate: () => post<UpdateStatus>('/api/update'),
-  restartNow: () => post('/api/update/restart'),
+  tree: (m: string, cwd: string, path: string) => request<TreeEntry[]>('GET', `${at(m)}/tree?${project(cwd, path)}`),
+  file: (m: string, cwd: string, path: string) => request<FileView>('GET', `${at(m)}/file?${project(cwd, path)}`),
+  git: (m: string, cwd: string) => request<GitStatus | null>('GET', `${at(m)}/git?${project(cwd)}`),
+  gitDiff: (m: string, cwd: string, path: string) => request<{ diff: string }>('GET', `${at(m)}/git/diff?${project(cwd, path)}`),
+  update: (m: string) => request<UpdateStatus>('GET', `${at(m)}/update`),
+  startUpdate: (m: string) => post<UpdateStatus>(`${at(m)}/update`),
+  restartNow: (m: string) => post(`${at(m)}/update/restart`),
   rename: (id: string, title: string) => post(`${sid(id)}/rename`, { title }),
   settings: (id: string, body: RunOptions) => post(`${sid(id)}/settings`, body),
   context: (id: string) => request<ContextUsage>('GET', `${sid(id)}/context`),
-  models: () => request<ModelOption[]>('GET', '/api/models'),
+  models: (m: string) => request<ModelOption[]>('GET', `${at(m)}/models`),
   approve: (id: string, requestId: string, body: { allow: boolean; always?: boolean; message?: string }) =>
     post(`${sid(id)}/approvals/${requestId}`, body),
   answer: (id: string, requestId: string, body: { answers?: Record<string, string>; decline?: boolean }) =>

@@ -16,6 +16,7 @@ import {
   Pin,
   PinOff,
   Smartphone,
+  Server,
   Trash2,
   Volume2,
   VolumeOff,
@@ -61,6 +62,7 @@ import { useGitStatus, useHome } from '@/lib/hooks'
 import { enqueue, useOutbox } from '@/lib/outbox'
 import { clearNotifications } from '@/lib/push'
 import { setAutoSpeech, speakNew, speechSupported, useSpeech } from '@/lib/speech'
+import { useMachine, useMachines } from '@/lib/machines'
 import { closeChat, openBeside, swapChat, usePane, useSplit } from '@/lib/split'
 import { onLiveEvent, selectView, subscribe, unsubscribe, useStore } from '@/lib/store'
 import type { ContextUsage, LoggedEvent, RunOptions } from '@/lib/types'
@@ -70,7 +72,7 @@ import { cn } from '@/lib/utils'
  * Histórico salvo da conversa. Com a sessão aberta no painel, o servidor devolve só o que
  * existia antes do processo (o resto vem ao vivo). Aberta no PC, atualiza periodicamente.
  */
-function useHistory(id: string, panelOpen: boolean, pcOwned: boolean, pcWorking: boolean) {
+function useHistory(id: string, machine: string, panelOpen: boolean, pcOwned: boolean, pcWorking: boolean) {
   const [events, setEvents] = useState<LoggedEvent[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const latest = useRef(0)
@@ -86,7 +88,8 @@ function useHistory(id: string, panelOpen: boolean, pcOwned: boolean, pcWorking:
     } catch (err) {
       if (ticket === latest.current) setError(errorMessage(err))
     }
-  }, [id])
+    // A máquina muda quando o catálogo dela chega (conversa aberta por link direto): busca de novo lá.
+  }, [id, machine])
 
   useEffect(() => {
     void load()
@@ -206,6 +209,9 @@ export function ChatPage({ id }: { id: string }) {
   const [besideOpen, setBesideOpen] = useState(false)
   const view = useStore(selectView(id))
   const entry = useStore((s) => s.catalog.find((c) => c.sessionId === id))
+  // Máquina da conversa (posta pelo ChatSplit, ver machines.ts): tudo desta tela vai para ela.
+  const machine = useMachine()
+  const machineLabel = useMachines((s) => (s.machines.length > 1 ? s.machines.find((m) => m.id === machine)?.name : undefined))
   const rekeyed = useStore((s) => s.rekeys[id])
   const [summaryOpen, setSummaryOpen] = useState(false)
   const [confirmTakeover, setConfirmTakeover] = useState(false)
@@ -213,7 +219,7 @@ export function ChatPage({ id }: { id: string }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [explorerOpen, setExplorerOpen] = useState(false)
   const [gitOpen, setGitOpen] = useState(false)
-  const home = useHome()
+  const home = useHome(machine)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -250,7 +256,7 @@ export function ChatPage({ id }: { id: string }) {
   const waitingFor = panelOpen ? view.waitingFor : entry?.waitingFor
   const working = panelOpen && (state === 'running' || state === 'starting')
 
-  const history = useHistory(id, panelOpen, owner === 'pc', entry?.state === 'running')
+  const history = useHistory(id, machine, panelOpen, owner === 'pc', entry?.state === 'running')
 
   const events: Keyed[] = useMemo(
     () => [
@@ -270,7 +276,7 @@ export function ChatPage({ id }: { id: string }) {
   const context = useContextUsage(id, panelOpen, turns)
   // Com projeto (não a pasta pessoal): explorador de arquivos e git no topo.
   const project = entry?.cwd && home && entry.cwd !== home ? entry.cwd : undefined
-  const git = useGitStatus(project, turns)
+  const git = useGitStatus(machine, project, turns)
   // Conversa parada: modelo/esforço/modo escolhidos agora valem quando ela for retomada.
   const [pending, setPending] = useState<RunOptions>({})
   const { scrollRef, contentRef, onScroll, atBottom, follow, setFollow, jumpToBottom } = useAutoScroll([
@@ -334,6 +340,12 @@ export function ChatPage({ id }: { id: string }) {
           <div className="truncate text-sm font-medium">{entry?.title ?? 'Sessão'}</div>
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <span className="min-w-0 truncate">{projectName(entry?.cwd)}</span>
+            {machineLabel && (
+              <span className="flex shrink-0 items-center gap-0.5">
+                <Server className="size-3" />
+                {machineLabel}
+              </span>
+            )}
             {owner === 'pc' && <Monitor className="size-3 shrink-0" />}
             {owner === 'panel' && <Smartphone className="size-3 shrink-0" />}
             <StateBadge state={state} waitingFor={waitingFor} className="h-5 shrink-0 px-1.5 text-[10px]" />

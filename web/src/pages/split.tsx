@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useMediaQuery } from '@/lib/hooks'
+import { MachineContext, machineOf } from '@/lib/machines'
 import { focusChat, PaneContext, useSplit } from '@/lib/split'
+import { useStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { ChatPage } from './chat'
 
@@ -9,6 +11,16 @@ const STACKED = '(orientation: portrait) and (max-width: 63.99rem)'
 
 const isTextField = (target: EventTarget) =>
   target instanceof HTMLTextAreaElement || (target instanceof HTMLElement && target.isContentEditable)
+
+/** A conversa com a máquina dela no contexto: tudo dentro dela (arquivos, git, `@`) vai para lá. */
+function ChatInMachine({ id }: { id: string }) {
+  const machine = useStore((s) => s.catalog.find((c) => c.sessionId === id)?.machine) ?? machineOf(id)
+  return (
+    <MachineContext value={machine}>
+      <ChatPage id={id} />
+    </MachineContext>
+  )
+}
 
 /**
  * Conversas lado a lado (ver lib/split.ts): no celular em pé, uma em cima da outra; deitado e no PC,
@@ -40,7 +52,7 @@ export function ChatSplit() {
                 if (isTextField(e.target)) setTyping((t) => (t === id ? null : t))
               }}
             >
-              <ChatPage id={id} />
+              <ChatInMachine id={id} />
             </div>
           </PaneContext>
         )

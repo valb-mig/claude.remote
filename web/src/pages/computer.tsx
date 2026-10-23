@@ -2,6 +2,7 @@ import { RefreshCw } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useEffect, useMemo, useState } from 'react'
 import { PageHeader } from '@/components/layout'
+import { MachineFilter } from '@/components/machine-filter'
 import { Meter, WindowMeter } from '@/components/pc-status'
 import { PushSettings } from '@/components/push-settings'
 import { UpdateCard } from '@/components/update-card'
@@ -10,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { api } from '@/lib/api'
 import { bytes, relativeTime, uptime } from '@/lib/format'
+import { HOME, baseOf, useMachineFilter } from '@/lib/machines'
 import { reconnectNow, useStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
 
@@ -29,18 +31,21 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 export function ComputerPage() {
-  const connection = useStore((s) => s.connection)
-  const catalog = useStore((s) => s.catalog)
-  const system = useStore((s) => s.system)
-  const usage = useStore((s) => s.usage)
+  // Com várias máquinas, os cartões são os da escolhida no topo (sem "Todas").
+  const machine = useMachineFilter() ?? HOME
+  const connection = useStore((s) => s.connections[machine] ?? 'connecting')
+  const all = useStore((s) => s.catalog)
+  const system = useStore((s) => s.systems[machine])
+  const usage = useStore((s) => s.usages[machine])
   const [health, setHealth] = useState<Awaited<ReturnType<typeof api.health>> | null>(null)
   const { theme, setTheme } = useTheme()
 
   useEffect(() => {
-    api.health().then(setHealth, () => setHealth(null))
-  }, [connection])
+    api.health(machine).then(setHealth, () => setHealth(null))
+  }, [machine, connection])
 
   const counts = useMemo(() => {
+    const catalog = all.filter((c) => (c.machine ?? HOME) === machine)
     const pc = catalog.filter((c) => c.owner === 'pc')
     return {
       pc: pc.length,
@@ -49,12 +54,13 @@ export function ComputerPage() {
       panel: catalog.filter((c) => c.owner === 'panel').length,
       saved: catalog.length,
     }
-  }, [catalog])
+  }, [all, machine])
 
   const c = CONNECTION[connection]
   return (
     <>
       <PageHeader title="Computador" />
+      <MachineFilter all={false} className="px-4 pb-3" />
       <div className="space-y-4 px-4 pb-6">
         <Card size="sm">
           <CardHeader>
@@ -72,7 +78,7 @@ export function ComputerPage() {
               }
             />
             <Row label="Servidor" value={health ? `iniciado ${relativeTime(health.startedAt)}` : '—'} />
-            <Row label="Endereço" value={<span className="font-mono text-xs">{health?.tailnetHost ?? location.host}</span>} />
+            <Row label="Endereço" value={<span className="font-mono text-xs">{health?.tailnetHost ?? (baseOf(machine) || location.host)}</span>} />
             <Button variant="outline" className="mt-2 w-full" onClick={() => reconnectNow(true)}>
               <RefreshCw /> Reconectar
             </Button>
@@ -184,7 +190,8 @@ export function ComputerPage() {
           </CardContent>
         </Card>
 
-        <UpdateCard />
+        {/* Um cartão por máquina: trocar de máquina recomeça a consulta. */}
+        <UpdateCard key={machine} machine={machine} />
 
         <Card size="sm">
           <CardHeader>

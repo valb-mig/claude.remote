@@ -4,6 +4,7 @@ import { Link, Redirect, Route, Switch, useLocation } from 'wouter'
 import { BottomNav, ConnectionBanner } from '@/components/layout'
 import { Button } from '@/components/ui/button'
 import { useWide } from '@/lib/hooks'
+import { loadMachines } from '@/lib/machines'
 import { useSplit } from '@/lib/split'
 import { startOutbox } from '@/lib/outbox'
 import { syncPush } from '@/lib/push'
@@ -22,10 +23,15 @@ export default function App() {
   const wide = useWide()
 
   useEffect(() => {
+    // Outras máquinas suas com o Claude Remote (ver lib/machines.ts); a lista guardada vale até a resposta.
+    const refresh = () => void loadMachines().catch(() => {})
+    refresh()
+    const machines = setInterval(refresh, 60_000)
     connect()
     startOutbox()
     watchUpdates()
     void syncPush().catch(() => {})
+    return () => clearInterval(machines)
   }, [])
 
   // Toque numa notificação com o app já aberto: o service worker pede a troca de tela.

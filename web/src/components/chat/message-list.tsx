@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { imageUrl, thumbUrl } from '@/lib/api'
 import { duration } from '@/lib/format'
 import { discard, retryItem, type OutboxItem } from '@/lib/outbox'
+import { machineOf } from '@/lib/machines'
 import { speechSupported, stopSpeakingIn, toggleSpeech, useSpeech } from '@/lib/speech'
 import { useStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
@@ -84,7 +85,7 @@ function UserBubble({ sessionId, text, images, files }: { sessionId: string; tex
 
 /** Mensagem que ainda não chegou ao PC: relógio enquanto espera, e o motivo se não deu para enviar. */
 function QueuedBubble({ item, sessionId }: { item: OutboxItem; sessionId: string }) {
-  const connection = useStore((s) => s.connection)
+  const connection = useStore((s) => s.connections[machineOf(sessionId)] ?? 'connecting')
   const images = item.attachments.flatMap((a) => (a.thumb ? [a.thumb] : []))
   const files = item.attachments.flatMap((a) => (a.thumb ? [] : [a.name]))
   const action = 'font-medium text-foreground underline-offset-2 hover:underline'

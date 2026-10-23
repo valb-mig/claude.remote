@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Link, useLocation } from 'wouter'
 import { PageHeader } from '@/components/layout'
+import { MachineFilter } from '@/components/machine-filter'
 import { PcStatus } from '@/components/pc-status'
 import { ProjectPicker } from '@/components/project-picker'
 import { SessionInfo } from '@/components/session-info'
@@ -11,6 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { projectName } from '@/lib/format'
 import { useWide } from '@/lib/hooks'
+import { HOME, newChatUrl, useMachineFilter } from '@/lib/machines'
 import { focusChat, openBeside, useSplit } from '@/lib/split'
 import { useStore } from '@/lib/store'
 import type { CatalogEntry } from '@/lib/types'
@@ -74,8 +76,10 @@ function Group({ title, sessions }: { title: string; sessions: CatalogEntry[] })
 }
 
 export function SessionsPage() {
-  const catalog = useStore((s) => s.catalog)
+  const all = useStore((s) => s.catalog)
   const loaded = useStore((s) => s.catalogLoaded)
+  const filter = useMachineFilter()
+  const catalog = useMemo(() => (filter === null ? all : all.filter((c) => (c.machine ?? HOME) === filter)), [all, filter])
   const [query, setQuery] = useState('')
   const [showAll, setShowAll] = useState(false)
   const [picker, setPicker] = useState(false)
@@ -103,7 +107,8 @@ export function SessionsPage() {
           </Button>
         }
       />
-      <PcStatus />
+      <MachineFilter className="px-4 pb-3" />
+      <PcStatus machine={filter ?? HOME} />
       <div className="px-4 pb-3">
         <Input type="search" placeholder="Buscar por título ou projeto" value={query} onChange={(e) => setQuery(e.target.value)} />
       </div>
@@ -134,7 +139,7 @@ export function SessionsPage() {
       <ProjectPicker
         open={picker}
         onOpenChange={setPicker}
-        onPick={(cwd) => navigate(cwd ? `/nova?cwd=${encodeURIComponent(cwd)}` : '/nova')}
+        onPick={(cwd, machine) => navigate(newChatUrl(cwd, machine))}
       />
     </>
   )

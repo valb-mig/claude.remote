@@ -2,6 +2,7 @@ import { ChevronRight, OctagonAlert, TriangleAlert } from 'lucide-react'
 import { Link } from 'wouter'
 import { Skeleton } from '@/components/ui/skeleton'
 import { bytes, resetTime } from '@/lib/format'
+import { useMachines } from '@/lib/machines'
 import { useStore } from '@/lib/store'
 import type { UsageWindow } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -75,15 +76,17 @@ export function WindowMeter({ label, window }: { label: string; window: UsageWin
 }
 
 /** Bloco da home: o estado do PC e do plano num relance; toque abre a aba Computador. */
-export function PcStatus() {
-  const system = useStore((s) => s.system)
-  const usage = useStore((s) => s.usage)
+export function PcStatus({ machine }: { machine: string }) {
+  const system = useStore((s) => s.systems[machine])
+  const usage = useStore((s) => s.usages[machine])
+  // Com várias máquinas, o quadro diz de qual é.
+  const name = useMachines((s) => (s.machines.length > 1 ? s.machines.find((m) => m.id === machine)?.name : undefined))
   const plan = usage?.plan
 
   return (
     <Link href="/computador" className="mx-4 mb-3 block rounded-xl border bg-card p-3 active:bg-muted/50">
       <div className="mb-2.5 flex items-center justify-between text-xs font-medium text-muted-foreground">
-        <span>PC e uso do Claude</span>
+        <span>{name ? `${name} · PC e uso do Claude` : 'PC e uso do Claude'}</span>
         <ChevronRight className="size-4" />
       </div>
       <div className="grid grid-cols-2 gap-x-4 gap-y-3">

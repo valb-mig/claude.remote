@@ -145,8 +145,8 @@ export function startOutbox(): void {
   started = true
   void load()
   useStore.subscribe((s, prev) => {
-    // Conexão com o PC de volta: manda o que ficou na fila, sem esperar o intervalo de nova tentativa.
-    if (s.connection === 'open' && prev.connection !== 'open') {
+    // Conexão com alguma máquina de volta: manda o que ficou na fila, sem esperar o intervalo de nova tentativa.
+    if (Object.entries(s.connections).some(([m, c]) => c === 'open' && prev.connections[m] !== 'open')) {
       retry = 0
       void flush()
     }

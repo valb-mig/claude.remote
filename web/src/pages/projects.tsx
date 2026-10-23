@@ -3,30 +3,35 @@ import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Link } from 'wouter'
 import { PageHeader } from '@/components/layout'
+import { MachineFilter } from '@/components/machine-filter'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { api, errorMessage } from '@/lib/api'
 import { projectName, relativeTime, shortPath } from '@/lib/format'
+import { HOME, newChatUrl, useMachineFilter } from '@/lib/machines'
 import { useStore } from '@/lib/store'
 
 export function ProjectsPage() {
   const catalog = useStore((s) => s.catalog)
+  // Com várias máquinas, os projetos são os da máquina do filtro do topo (sem "Todas").
+  const machine = useMachineFilter() ?? HOME
   const [projects, setProjects] = useState<string[] | null>(null)
   const [query, setQuery] = useState('')
 
   useEffect(() => {
-    api.projects().then(setProjects, (err) => toast.error(errorMessage(err)))
-  }, [])
+    setProjects(null)
+    api.projects(machine).then(setProjects, (err) => toast.error(errorMessage(err)))
+  }, [machine])
 
   const stats = useMemo(() => {
     const map = new Map<string, { count: number; last: number }>()
     for (const c of catalog) {
-      if (!c.cwd) continue
+      if (!c.cwd || (c.machine ?? HOME) !== machine) continue
       const s = map.get(c.cwd) ?? { count: 0, last: 0 }
       map.set(c.cwd, { count: s.count + 1, last: Math.max(s.last, c.lastModified) })
     }
     return map
-  }, [catalog])
+  }, [catalog, machine])
 
   const list = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -38,6 +43,7 @@ export function ProjectsPage() {
   return (
     <>
       <PageHeader title="Projetos" />
+      <MachineFilter all={false} className="px-4 pb-3" />
       <div className="px-4 pb-3">
         <Input type="search" placeholder="Buscar projeto" value={query} onChange={(e) => setQuery(e.target.value)} />
       </div>
@@ -50,7 +56,7 @@ export function ProjectsPage() {
       ) : (
         <div className="divide-y pb-4">
           {!query.trim() && (
-            <Link href="/nova" className="flex items-center gap-3 px-4 py-3 active:bg-muted">
+            <Link href={newChatUrl(undefined, machine)} className="flex items-center gap-3 px-4 py-3 active:bg-muted">
               <House className="size-4 shrink-0 text-muted-foreground" />
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-medium">Sem projeto</div>
@@ -62,7 +68,7 @@ export function ProjectsPage() {
           {list.map((p) => {
             const s = stats.get(p)
             return (
-              <Link key={p} href={`/nova?cwd=${encodeURIComponent(p)}`} className="flex items-center gap-3 px-4 py-3 active:bg-muted">
+              <Link key={p} href={newChatUrl(p, machine)} className="flex items-center gap-3 px-4 py-3 active:bg-muted">
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium">{projectName(p)}</div>
                   <div className="truncate text-xs text-muted-foreground">
