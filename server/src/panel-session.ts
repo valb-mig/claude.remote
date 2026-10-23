@@ -15,6 +15,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import { AgentTasks } from './agents.ts';
 import { imageStore } from './images.ts';
+import { BackgroundTasks } from './tasks.ts';
 import { UPLOADS_DIR, childEnv } from './config.ts';
 import { readPlanUsage } from './claude-usage.ts';
 import type { PlanUsage } from './system.ts';
@@ -105,6 +106,8 @@ export class PanelSession extends EventEmitter {
   settings: { model?: string; effort?: string | null; permissionMode?: string } = {};
   /** Subagentes deste processo; os de segundo plano seguem trabalhando com a sessão ociosa. */
   readonly agents = new AgentTasks();
+  /** Tudo o que roda em segundo plano (monitores, comandos, subagentes): o Claude volta quando terminar. */
+  readonly background = new BackgroundTasks();
 
   private seq = 0;
   private readonly log: LoggedEvent[] = [];
@@ -260,6 +263,27 @@ export class PanelSession extends EventEmitter {
     this.afterResolve();
   }
 
+  /** Turno acabou, mas algo ainda roda em segundo plano e vai trazer o Claude de volta. */
+  get pendingWork(): boolean {
+    return this.agents.active > 0 || this.background.list.length > 0;
+  }
+
+  /** Para uma tarefa em segundo plano; o Claude recebe o aviso de que ela foi parada. */
+  async stopTask(taskId: string): Promise<void> {
+    if (!this.background.knows(taskId)) throw new HttpError(404, 'task_not_found');
+    await this.q.stopTask(taskId);
+  }
+
+  /** Fim da saída de um comando ou monitor em segundo plano (até 8 KiB), sem gastar um turno. */
+  async taskOutput(taskId: string): Promise<{ output: string; totalBytes: number }> {
+    if (!this.background.knows(taskId)) throw new HttpError(404, 'task_not_found');
+    // Método do SDK que ainda não está nos tipos publicados.
+    const q = this.q as Query & { getTaskOutput?: (id: string) => Promise<{ output: string; total_bytes: number }> };
+    if (typeof q.getTaskOutput !== 'function') throw new HttpError(501, 'task_output_unsupported');
+    const r = await q.getTaskOutput(taskId);
+    return { output: r.output, totalBytes: r.total_bytes };
+  }
+
   async interrupt(): Promise<void> {
     if (this.state === 'exited') throw new HttpError(409, 'session_exited');
     await this.q.interrupt();
@@ -402,8 +426,10 @@ export class PanelSession extends EventEmitter {
 
     const working = this.agents.active;
     for (const ev of this.agents.fromMessage(msg)) this.record(ev);
-    // Subagente começou ou terminou: a lista de sessões mostra quantos trabalham.
-    if (this.agents.active !== working) this.emit('state');
+    const waiting = this.background.list;
+    for (const ev of this.background.fromMessage(msg)) this.record(ev);
+    // Subagente ou tarefa em segundo plano começou ou terminou: a lista de sessões mostra.
+    if (this.agents.active !== working || this.background.list !== waiting) this.emit('state');
   }
 
   private updateSettings(patch: PanelSession['settings']): void {

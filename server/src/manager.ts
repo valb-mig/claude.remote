@@ -43,6 +43,8 @@ export type CatalogEntry = {
   pending?: { requestId: string; kind: 'approval' | 'question' }[];
   /** Subagentes trabalhando agora (só sessões do painel). */
   agents?: number;
+  /** Outras tarefas em segundo plano (monitores, comandos): o turno acabou, mas o Claude vai voltar. */
+  tasks?: { type: string; description: string }[];
   pinned?: boolean;
 };
 
@@ -147,6 +149,8 @@ export class Manager extends EventEmitter {
       entry.owner = 'panel';
       entry.state = s.state === 'starting' ? 'running' : s.state === 'exited' ? 'stopped' : s.state;
       entry.agents = s.state === 'exited' ? undefined : s.agents.active || undefined;
+      const tasks = s.state === 'exited' ? [] : s.background.list.filter((t) => t.type !== 'local_agent');
+      entry.tasks = tasks.length ? tasks.map((t) => ({ type: t.type, description: t.description })) : undefined;
       // Turno encerrado com subagentes em segundo plano: a sessão ainda está trabalhando.
       if (entry.state === 'idle' && entry.agents) entry.state = 'running';
       entry.waitingFor = s.waitingFor;

@@ -4,6 +4,16 @@ import type { ImageSink, StoredImage } from './images.ts';
 export type SessionState = 'starting' | 'running' | 'waiting' | 'idle' | 'exited';
 
 export type AgentStatus = 'running' | 'completed' | 'failed' | 'stopped';
+/** Tarefa em segundo plano viva (ver tasks.ts). `type`: local_bash (comando ou monitor), local_agent, local_workflow… */
+export type BackgroundTask = {
+  taskId: string;
+  /** Chamada que a criou (Bash, Monitor, Agent): o celular tira dela o comando e o tipo. */
+  toolUseId?: string;
+  type: string;
+  description: string;
+  subagentType?: string;
+  startedAt: number;
+};
 export type AgentUsage = { tokens: number; toolUses: number; durationMs: number };
 
 /** Pergunta de múltipla escolha feita pelo Claude (ferramenta AskUserQuestion). */
@@ -70,6 +80,8 @@ export type PanelEvent =
       result?: string;
       error?: string;
     }
+  /** Tarefas em segundo plano vivas, a lista inteira a cada mudança (vazia quando a última termina). */
+  | { kind: 'tasks'; tasks: BackgroundTask[] }
   | { kind: 'result'; ok: boolean; subtype: string; durationMs: number; costUsd?: number; turns: number }
   | { kind: 'exit'; error?: string };
 

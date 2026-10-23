@@ -122,6 +122,16 @@ app.post<{ Body: { audio: string } }>(
   },
 );
 
+/** Tarefa em segundo plano da conversa aberta no painel: o fim da saída e parar (ver tasks.ts). */
+app.get<{ Params: IdParams & { taskId: string } }>('/api/sessions/:id/tasks/:taskId/output', async (req) =>
+  manager.get(req.params.id).taskOutput(req.params.taskId),
+);
+
+app.post<{ Params: IdParams & { taskId: string } }>('/api/sessions/:id/tasks/:taskId/stop', async (req) => {
+  await manager.get(req.params.id).stopTask(req.params.taskId);
+  return { ok: true };
+});
+
 /** O que um subagente da conversa fez, do transcript salvo (ver agents.ts). */
 app.get<{ Params: IdParams & { toolUseId: string }; Querystring: { agentId?: string } }>(
   '/api/sessions/:id/agents/:toolUseId',

@@ -61,6 +61,8 @@ export class Notifier {
       case 'approval_request':
         return this.send(sessionId, 'Aprovação', toolText(ev.toolName, ev.input), ATTENTION);
       case 'result': {
+        // Algo ainda roda em segundo plano (monitor, comando, subagente): o Claude vai voltar, não terminou.
+        if (this.manager.find(sessionId)?.pendingWork) return;
         const reply = this.lastReply.get(sessionId);
         this.lastReply.delete(sessionId);
         return this.send(sessionId, resultLabel(ev), reply ? plain(reply) : `Turno de ${duration(ev.durationMs)}`, DONE);
