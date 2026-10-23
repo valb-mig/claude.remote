@@ -1,10 +1,10 @@
-import { FolderGit2, MessagesSquare, Monitor, OctagonAlert, PanelLeftOpen, Plus, TriangleAlert } from 'lucide-react'
+import { FolderGit2, MessagesSquare, Monitor, OctagonAlert, PanelLeftClose, PanelLeftOpen, Plus, TriangleAlert } from 'lucide-react'
 import { Link, useLocation } from 'wouter'
 import { severityOf } from '@/components/pc-status'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { bytes, resetTime } from '@/lib/format'
 import { HOME, useMachineFilter, useMachines } from '@/lib/machines'
-import { setSidebarCollapsed } from '@/lib/sidebar'
+import { setSidebarCollapsed, useSidebar } from '@/lib/sidebar'
 import { useStore } from '@/lib/store'
 import type { UsageWindow } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -120,8 +120,8 @@ function RailItem({
 }
 
 /**
- * Lista de conversas do PC recolhida: uma alça estreita com as abas e, embaixo, CPU, memória e os
- * limites do Claude em anéis. Sessões (ou o botão do topo) abre a lista de novo.
+ * Alça do PC, sempre à esquerda: as abas e, embaixo, CPU, memória e os limites do Claude em anéis.
+ * O botão do topo e Sessões abrem e recolhem a lista de conversas ao lado, como na barra do VS Code.
  */
 export function SidebarRail() {
   const [location] = useLocation()
@@ -132,15 +132,16 @@ export function SidebarRail() {
   // Com várias máquinas, os anéis dizem de qual é (a do filtro das Sessões).
   const name = useMachines((s) => (s.machines.length > 1 ? s.machines.find((m) => m.id === machine)?.name : undefined))
   const of = (text: string) => (name ? `${name} · ${text}` : text)
-  const expand = () => setSidebarCollapsed(false)
+  const collapsed = useSidebar((s) => s.collapsed)
+  const toggle = () => setSidebarCollapsed(!collapsed)
   const plan = usage?.plan?.available ? usage.plan : null
   const memory = system ? (system.memory.used / system.memory.total) * 100 : null
 
   return (
     <TooltipProvider delayDuration={200}>
       <aside className="flex w-16 shrink-0 flex-col items-center gap-1 border-r py-3">
-        <RailItem label="Abrir a lista de conversas" onClick={expand}>
-          <PanelLeftOpen />
+        <RailItem label={collapsed ? 'Abrir a lista de conversas' : 'Recolher a lista de conversas'} onClick={toggle}>
+          {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
         </RailItem>
         <RailItem label="Nova conversa" href="/nova" active={location === '/nova'}>
           <Plus />
@@ -148,8 +149,9 @@ export function SidebarRail() {
         <div className="my-1 h-px w-8 bg-border" />
         <RailItem
           label={attention ? `Sessões: ${attention} ${attention === 1 ? 'precisa' : 'precisam'} de você` : 'Sessões'}
-          onClick={expand}
-          active={location === '/' || location.startsWith('/s/')}
+          onClick={toggle}
+          // Marcada enquanto a lista de conversas está aberta ao lado.
+          active={!collapsed}
           badge={attention}
         >
           <MessagesSquare />

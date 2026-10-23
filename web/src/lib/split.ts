@@ -12,7 +12,7 @@ import { useSidebar } from './sidebar'
 
 /** Largura mínima de cada conversa no PC: a de um celular pequeno, para o qual o chat foi feito. */
 const MIN_CHAT = 340
-/** Barra lateral do PC quando há conversas lado a lado (`w-80`), ou recolhida na alça (`w-16`). */
+/** No PC, a alça (`w-16`) fica sempre; a lista de conversas (`w-80` com conversas lado a lado) recolhe. */
 const SIDEBAR = 320
 const RAIL = 64
 const MAX_CHATS = 4
@@ -73,7 +73,7 @@ export function closeChat(id: string, replace = false): void {
 /** Quantas conversas cabem lado a lado: até 2 no celular; no PC, conforme a largura (até 4). */
 export function useMaxChats(): number {
   const width = useWindowWidth()
-  const sidebar = useSidebar((s) => (s.collapsed ? RAIL : SIDEBAR))
+  const sidebar = useSidebar((s) => (s.collapsed ? RAIL : RAIL + SIDEBAR))
   if (width < 1024) return 2
   return Math.min(MAX_CHATS, Math.max(1, Math.floor((width - sidebar) / MIN_CHAT)))
 }

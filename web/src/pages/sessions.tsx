@@ -1,4 +1,4 @@
-import { Columns2, PanelLeftClose, Plus } from 'lucide-react'
+import { Columns2, Plus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Link, useLocation } from 'wouter'
@@ -83,8 +83,8 @@ function Group({ title, sessions, onMenu }: { title: string; sessions: CatalogEn
   )
 }
 
-/** `onCollapse`: na barra lateral do PC, recolhe a lista na alça (ver sidebar-rail.tsx). */
-export function SessionsPage({ onCollapse }: { onCollapse?: () => void } = {}) {
+/** `sidebar`: na barra lateral do PC, só a lista; as métricas e as abas ficam na alça (ver sidebar-rail.tsx). */
+export function SessionsPage({ sidebar = false }: { sidebar?: boolean } = {}) {
   const all = useStore((s) => s.catalog)
   const loaded = useStore((s) => s.catalogLoaded)
   const filter = useMachineFilter()
@@ -120,20 +120,13 @@ export function SessionsPage({ onCollapse }: { onCollapse?: () => void } = {}) {
       <PageHeader
         title="Sessões"
         action={
-          <div className="flex items-center gap-1">
-            <Button size="sm" onClick={() => setPicker(true)}>
-              <Plus /> Nova
-            </Button>
-            {onCollapse && (
-              <Button variant="ghost" size="icon-sm" onClick={onCollapse} aria-label="Recolher a lista de conversas" title="Recolher a lista">
-                <PanelLeftClose />
-              </Button>
-            )}
-          </div>
+          <Button size="sm" onClick={() => setPicker(true)}>
+            <Plus /> Nova
+          </Button>
         }
       />
       <MachineFilter className="px-4 pb-3" />
-      <PcStatus machine={filter ?? HOME} />
+      {!sidebar && <PcStatus machine={filter ?? HOME} />}
       <div className="px-4 pb-3">
         <Input type="search" placeholder="Buscar por título ou projeto" value={query} onChange={(e) => setQuery(e.target.value)} />
       </div>

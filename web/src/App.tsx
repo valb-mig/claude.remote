@@ -73,19 +73,25 @@ export default function App() {
   )
 }
 
-/** PC e tablet deitado: a lista de conversas fica fixa ao lado, com as abas no pé dela; recolhida, vira a alça. */
+/**
+ * PC e tablet deitado: a alça (abas e métricas) fica sempre à esquerda e, ao lado dela, a lista de
+ * conversas, que recolhe pelo botão do topo da alça.
+ */
 function Sidebar() {
   // Com conversas lado a lado, a lista fica mais estreita para sobrar espaço para elas.
   const split = useSplit().ids.length > 1
   const collapsed = useSidebar((s) => s.collapsed)
-  if (collapsed) return <SidebarRail />
   return (
-    <aside className={cn('flex w-80 shrink-0 flex-col border-r', !split && 'xl:w-96')}>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <SessionsPage onCollapse={() => setSidebarCollapsed(true)} />
-      </div>
-      <BottomNav />
-    </aside>
+    <>
+      <SidebarRail />
+      {!collapsed && (
+        <aside className={cn('flex w-80 shrink-0 flex-col border-r', !split && 'xl:w-96')}>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <SessionsPage sidebar />
+          </div>
+        </aside>
+      )}
+    </>
   )
 }
 
