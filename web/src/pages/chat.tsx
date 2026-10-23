@@ -33,6 +33,7 @@ import { Composer } from '@/components/chat/composer'
 import { buildItems, type Keyed } from '@/components/chat/items'
 import { MessageList } from '@/components/chat/message-list'
 import { SpeechPlayer } from '@/components/chat/speech-player'
+import { StickyPrompt } from '@/components/chat/sticky-prompt'
 import { SummarySheet } from '@/components/chat/summary-sheet'
 import { DeleteSessionDialog } from '@/components/delete-session-dialog'
 import { ExplorerSheet } from '@/components/explorer'
@@ -483,6 +484,7 @@ export function ChatPage({ id }: { id: string }) {
         </header>
 
         <div className={cn('relative min-h-0 flex-1', pane.collapsed && 'hidden')}>
+          <StickyPrompt scrollRef={scrollRef} items={items} />
           <div ref={scrollRef} onScroll={onScroll} className="absolute inset-0 overflow-y-auto">
             <div ref={contentRef} className="mx-auto w-full max-w-3xl">
               {history.events === null && !history.error ? (
