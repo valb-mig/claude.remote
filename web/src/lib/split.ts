@@ -57,9 +57,10 @@ export function swapChat(old: string, id: string, replace = false): void {
   go(ids.includes(id) ? ids : ids.map((x) => (x === old ? id : x)), replace)
 }
 
-/** Tira a conversa da tela; fechar a última volta para a lista. */
+/** Tira a conversa da tela; fechar a última volta para a lista. Fora da tela, não faz nada. */
 export function closeChat(id: string, replace = false): void {
   const ids = current()
+  if (!ids.includes(id)) return
   const rest = ids.filter((x) => x !== id)
   if (focusedOf(ids) === id && rest.length) focusChat(rest[Math.max(0, ids.indexOf(id) - 1)])
   go(rest, replace)

@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { api } from './api'
 import type { GitStatus } from './types'
 
@@ -61,4 +61,66 @@ export function useGitStatus(
     }
   }, [machine, cwd, refresh, tick])
   return { status, reload: () => setTick((t) => t + 1) }
+}
+
+const LONG_PRESS_MS = 500
+// Dedo que andou mais que isso está rolando a lista, não segurando.
+const MOVE_TOLERANCE = 10
+
+/**
+ * Abre um menu com o botão direito (PC) ou segurando o dedo (celular). O toque longo é feito aqui, e
+ * não pelo do navegador: no iPhone ele não vira `contextmenu`, e no Android o menu do próprio Chrome
+ * para links apareceria. Depois de um toque longo, o toque que segue não abre a conversa.
+ */
+export function usePressMenu(open: (x: number, y: number) => void) {
+  const press = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | null>(null)
+  const touch = useRef(false)
+  // O toque longo já abriu o menu: o `contextmenu` do Android e o clique ao soltar ficam de fora.
+  const opened = useRef(false)
+  const cancel = () => {
+    if (press.current) clearTimeout(press.current.timer)
+    press.current = null
+  }
+  return {
+    onPointerDown: (e: React.PointerEvent) => {
+      cancel()
+      opened.current = false
+      touch.current = e.pointerType !== 'mouse'
+      if (!touch.current) return
+      const { clientX: x, clientY: y } = e
+      const timer = setTimeout(() => {
+        press.current = null
+        opened.current = true
+        navigator.vibrate?.(10)
+        open(x, y)
+      }, LONG_PRESS_MS)
+      press.current = { timer, x, y }
+    },
+    onPointerMove: (e: React.PointerEvent) => {
+      const p = press.current
+      if (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) > MOVE_TOLERANCE) cancel()
+    },
+    onPointerUp: cancel,
+    // A lista começou a rolar.
+    onPointerCancel: cancel,
+    onContextMenu: (e: React.MouseEvent) => {
+      e.preventDefault()
+      cancel()
+      if (opened.current) return
+      if (touch.current) opened.current = true
+      // Tecla de menu do teclado: sem ponteiro, abre embaixo do item.
+      if (e.clientX === 0 && e.clientY === 0) {
+        const r = e.currentTarget.getBoundingClientRect()
+        open(r.left + 16, r.bottom)
+      } else {
+        open(e.clientX, e.clientY)
+      }
+    },
+    onClickCapture: (e: React.MouseEvent) => {
+      if (!opened.current) return
+      opened.current = false
+      e.preventDefault()
+      e.stopPropagation()
+    },
+  }
 }

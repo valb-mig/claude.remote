@@ -34,6 +34,7 @@ import { buildItems, type Keyed } from '@/components/chat/items'
 import { MessageList } from '@/components/chat/message-list'
 import { SpeechPlayer } from '@/components/chat/speech-player'
 import { SummarySheet } from '@/components/chat/summary-sheet'
+import { DeleteSessionDialog } from '@/components/delete-session-dialog'
 import { ExplorerSheet } from '@/components/explorer'
 import { GitSheet } from '@/components/git-panel'
 import { RepoLink } from '@/components/repo-link'
@@ -631,30 +632,7 @@ export function ChatPage({ id }: { id: string }) {
           <GitSheet cwd={project} status={git.status} open={gitOpen} onOpenChange={setGitOpen} onRefresh={git.reload} />
         )}
 
-        <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Apagar esta conversa?</AlertDialogTitle>
-              <AlertDialogDescription>
-                O histórico é removido do Claude Code: some também do /resume no terminal e do VSCode. Não dá para desfazer.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancelar</AlertDialogCancel>
-              <AlertDialogAction
-                variant="destructive"
-                onClick={() =>
-                  run(async () => {
-                    await api.remove(id)
-                    closeChat(id, true)
-                  }, 'Conversa apagada')
-                }
-              >
-                Apagar
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        <DeleteSessionDialog sessionId={id} open={confirmDelete} onOpenChange={setConfirmDelete} />
 
         <AlertDialog open={confirmTakeover} onOpenChange={setConfirmTakeover}>
           <AlertDialogContent>
