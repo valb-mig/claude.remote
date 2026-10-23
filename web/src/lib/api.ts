@@ -9,6 +9,7 @@ import type {
   ModelOption,
   PushPrefs,
   RunOptions,
+  SessionCost,
   TreeEntry,
   UpdateStatus,
 } from './types'
@@ -85,6 +86,8 @@ export const api = {
   rename: (id: string, title: string) => post(`${sid(id)}/rename`, { title }),
   settings: (id: string, body: RunOptions) => post(`${sid(id)}/settings`, body),
   context: (id: string) => request<ContextUsage>('GET', `${sid(id)}/context`),
+  /** Tokens e custo estimado da conversa inteira, lidos do transcript salvo no PC. */
+  cost: (id: string) => request<SessionCost>('GET', `${sid(id)}/cost`),
   models: (m: string) => request<ModelOption[]>('GET', `${at(m)}/models`),
   /** Tarefa em segundo plano (monitor, comando): o fim da saída e parar. */
   taskOutput: (id: string, taskId: string) =>

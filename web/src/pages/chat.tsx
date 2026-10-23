@@ -599,7 +599,7 @@ export function ChatPage({ id }: { id: string }) {
           )}
         </div>
 
-        <SummarySheet sessionId={id} events={events} cwd={entry?.cwd} open={summaryOpen} onOpenChange={setSummaryOpen} />
+        <SummarySheet sessionId={id} events={events} cwd={entry?.cwd} context={context} open={summaryOpen} onOpenChange={setSummaryOpen} />
         <AgentsSheet
           tree={agents}
           rootLabel={stateInfo(shownState, shownWaiting).label}

@@ -138,6 +138,25 @@ export type ContextUsage = {
 
 export type ModelOption = { value: string; resolvedModel?: string; displayName: string; efforts: string[] }
 
+/** Tokens e custo de um modelo na conversa (ver server/src/session-cost.ts); `costUsd` null: sem preço na tabela. */
+export type ModelSpend = {
+  model: string
+  requests: number
+  input: number
+  output: number
+  cacheWrite: number
+  cacheRead: number
+  costUsd: number | null
+}
+
+/** Consumo da conversa inteira, subagentes incluídos, a preço de tabela da API. */
+export type SessionCost = {
+  costUsd: number
+  subagentsUsd: number
+  models: ModelSpend[]
+  context: { model: string; tokens: number; window: number | null } | null
+}
+
 export type TreeEntry = { name: string; path: string; type: 'dir' | 'file'; size?: number; ignored?: boolean }
 
 export type FileView =
