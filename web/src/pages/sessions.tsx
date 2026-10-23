@@ -1,17 +1,19 @@
-import { Columns2, Plus } from 'lucide-react'
+import { Columns2, PanelLeftClose, Plus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Link, useLocation } from 'wouter'
+import { DeleteSessionDialog } from '@/components/delete-session-dialog'
 import { PageHeader } from '@/components/layout'
 import { MachineFilter } from '@/components/machine-filter'
 import { PcStatus } from '@/components/pc-status'
 import { ProjectPicker } from '@/components/project-picker'
 import { SessionInfo } from '@/components/session-info'
+import { SessionMenu, type MenuAt } from '@/components/session-menu'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { projectName } from '@/lib/format'
-import { useWide } from '@/lib/hooks'
+import { usePressMenu, useWide } from '@/lib/hooks'
 import { HOME, newChatUrl, useMachineFilter } from '@/lib/machines'
 import { focusChat, openBeside, useSplit } from '@/lib/split'
 import { useStore } from '@/lib/store'
@@ -20,10 +22,14 @@ import { cn } from '@/lib/utils'
 
 const RECENT_LIMIT = 30
 
-function SessionRow({ s }: { s: CatalogEntry }) {
+type OnMenu = (s: CatalogEntry, x: number, y: number) => void
+
+function SessionRow({ s, onMenu }: { s: CatalogEntry; onMenu: OnMenu }) {
   // No PC a lista fica ao lado do chat: as conversas na tela ficam marcadas, a em foco mais forte.
   const split = useSplit()
   const wide = useWide()
+  // Botão direito ou dedo segurado: o menu da conversa (apagar).
+  const press = usePressMenu((x, y) => onMenu(s, x, y))
   const shown = split.ids.includes(s.sessionId)
   const focused = split.focused === s.sessionId
   return (
@@ -35,8 +41,10 @@ function SessionRow({ s }: { s: CatalogEntry }) {
           if (shown) e.preventDefault()
         }}
         aria-current={focused ? 'page' : undefined}
+        {...press}
         className={cn(
-          'flex items-start gap-3 px-4 py-3 hover:bg-muted/50 active:bg-muted',
+          // Segurar o dedo não seleciona o texto nem abre o menu de link do iPhone.
+          'flex items-start gap-3 px-4 py-3 select-none [-webkit-touch-callout:none] hover:bg-muted/50 active:bg-muted',
           shown && 'bg-muted/50',
           focused && 'bg-muted hover:bg-muted',
         )}
@@ -61,21 +69,22 @@ function SessionRow({ s }: { s: CatalogEntry }) {
   )
 }
 
-function Group({ title, sessions }: { title: string; sessions: CatalogEntry[] }) {
+function Group({ title, sessions, onMenu }: { title: string; sessions: CatalogEntry[]; onMenu: OnMenu }) {
   if (sessions.length === 0) return null
   return (
     <section className="mb-4">
       <h2 className="px-4 pb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">{title}</h2>
       <div className="divide-y">
         {sessions.map((s) => (
-          <SessionRow key={s.sessionId} s={s} />
+          <SessionRow key={s.sessionId} s={s} onMenu={onMenu} />
         ))}
       </div>
     </section>
   )
 }
 
-export function SessionsPage() {
+/** `onCollapse`: na barra lateral do PC, recolhe a lista na alça (ver sidebar-rail.tsx). */
+export function SessionsPage({ onCollapse }: { onCollapse?: () => void } = {}) {
   const all = useStore((s) => s.catalog)
   const loaded = useStore((s) => s.catalogLoaded)
   const filter = useMachineFilter()
@@ -84,6 +93,15 @@ export function SessionsPage() {
   const [showAll, setShowAll] = useState(false)
   const [picker, setPicker] = useState(false)
   const [, navigate] = useLocation()
+  // Menu e confirmação ficam com a última conversa enquanto fecham, para não esvaziar na animação.
+  const [menu, setMenu] = useState<MenuAt | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [deleting, setDeleting] = useState<CatalogEntry | null>(null)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const onMenu: OnMenu = (session, x, y) => {
+    setMenu({ session, x, y })
+    setMenuOpen(true)
+  }
 
   const { attention, pinned, open, recent } = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -102,9 +120,16 @@ export function SessionsPage() {
       <PageHeader
         title="Sessões"
         action={
-          <Button size="sm" onClick={() => setPicker(true)}>
-            <Plus /> Nova
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button size="sm" onClick={() => setPicker(true)}>
+              <Plus /> Nova
+            </Button>
+            {onCollapse && (
+              <Button variant="ghost" size="icon-sm" onClick={onCollapse} aria-label="Recolher a lista de conversas" title="Recolher a lista">
+                <PanelLeftClose />
+              </Button>
+            )}
+          </div>
         }
       />
       <MachineFilter className="px-4 pb-3" />
@@ -120,10 +145,10 @@ export function SessionsPage() {
         </div>
       ) : (
         <>
-          <Group title="Precisam de você" sessions={attention} />
-          <Group title="Fixadas" sessions={pinned} />
-          <Group title="Abertas agora" sessions={open} />
-          <Group title="Recentes" sessions={showAll ? recent : recent.slice(0, RECENT_LIMIT)} />
+          <Group title="Precisam de você" sessions={attention} onMenu={onMenu} />
+          <Group title="Fixadas" sessions={pinned} onMenu={onMenu} />
+          <Group title="Abertas agora" sessions={open} onMenu={onMenu} />
+          <Group title="Recentes" sessions={showAll ? recent : recent.slice(0, RECENT_LIMIT)} onMenu={onMenu} />
           {recent.length > RECENT_LIMIT && !showAll && (
             <div className="px-4 pb-6">
               <Button variant="ghost" className="w-full" onClick={() => setShowAll(true)}>
@@ -135,6 +160,18 @@ export function SessionsPage() {
             <p className="px-4 text-sm text-muted-foreground">Nada encontrado para “{query}”.</p>
           )}
         </>
+      )}
+      <SessionMenu
+        at={menu}
+        open={menuOpen}
+        onOpenChange={setMenuOpen}
+        onDelete={(session) => {
+          setDeleting(session)
+          setConfirmOpen(true)
+        }}
+      />
+      {deleting && (
+        <DeleteSessionDialog sessionId={deleting.sessionId} title={deleting.title} open={confirmOpen} onOpenChange={setConfirmOpen} />
       )}
       <ProjectPicker
         open={picker}

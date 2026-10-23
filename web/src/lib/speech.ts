@@ -28,21 +28,34 @@ export type Reading = {
   progress: number
 }
 
-// Leitura automática (o alto-falante no topo do chat): vale para todas as conversas e fica salva.
+// Leitura automática (o alto-falante no topo do chat) e velocidade: valem para todas as conversas e ficam salvas.
 const AUTO_KEY = 'cr:speech-auto'
+const RATE_KEY = 'cr:speech-rate'
 
-function savedAuto(): boolean {
+/** Velocidades da barra de leitura, na ordem em que o botão passa por elas. */
+export const SPEEDS = [1, 1.5, 2, 3]
+
+function saved(key: string): string | null {
   try {
-    return localStorage.getItem(AUTO_KEY) === '1'
+    return localStorage.getItem(key)
   } catch {
-    return false
+    return null
   }
 }
 
-/** Leitura atual (uma por vez no app inteiro) e se as respostas novas são lidas sozinhas. */
-export const useSpeech = create<{ reading: Reading | null; auto: boolean }>(() => ({
+function save(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    // localStorage indisponível (modo privado): segue só em memória.
+  }
+}
+
+/** Leitura atual (uma por vez no app inteiro), se as respostas novas são lidas sozinhas e a velocidade da voz. */
+export const useSpeech = create<{ reading: Reading | null; auto: boolean; rate: number }>(() => ({
   reading: null,
-  auto: speechSupported && savedAuto(),
+  auto: speechSupported && saved(AUTO_KEY) === '1',
+  rate: SPEEDS.find((r) => String(r) === saved(RATE_KEY)) ?? 1,
 }))
 
 // ---------------------------------------------------------------------------
@@ -165,8 +178,8 @@ let generation = 0
 // Referência à fala atual: sem ela, o Chrome pode descartar a fala e nunca avisar o fim.
 let current: SpeechSynthesisUtterance | null = null
 let ticker: ReturnType<typeof setInterval> | undefined
-// Velocidade da voz em caracteres por segundo, ajustada a cada frase: faz a barra andar dentro da
-// frase quando o aparelho não avisa por qual palavra está.
+// Velocidade da voz em caracteres por segundo, em 1x, ajustada a cada frase: faz a barra andar dentro
+// da frase quando o aparelho não avisa por qual palavra está.
 let charsPerSecond = 14
 // Respostas que chegaram com outra sendo lida (leitura automática): esperam a vez, na ordem.
 let queue: { key: string; markdown: string }[] = []
@@ -208,6 +221,9 @@ function speakFrom(index: number, gen: number): void {
   const { text } = reading.units[index]
   const utterance = new SpeechSynthesisUtterance(text)
   utterance.lang = 'pt-BR'
+  // A voz do aparelho acelera sem afinar; acima do que ela aguenta, para de acelerar (o teto varia por voz).
+  const rate = useSpeech.getState().rate
+  utterance.rate = rate
   let startedAt = performance.now()
   let spokenChars = 0
   utterance.onstart = () => {
@@ -219,7 +235,7 @@ function speakFrom(index: number, gen: number): void {
   utterance.onend = () => {
     if (gen !== generation) return
     const seconds = (performance.now() - startedAt) / 1000
-    if (seconds > 0.5) charsPerSecond = 0.7 * charsPerSecond + 0.3 * (text.length / seconds)
+    if (seconds > 0.5) charsPerSecond = 0.7 * charsPerSecond + 0.3 * (text.length / seconds / rate)
     speakFrom(index + 1, gen)
   }
   utterance.onerror = (e) => {
@@ -240,7 +256,7 @@ function speakFrom(index: number, gen: number): void {
   patch({ index, playing: true, progress: progressAt(reading.units, index) })
   synth.speak(utterance)
   ticker = setInterval(() => {
-    const estimate = Math.min(text.length * 0.97, ((performance.now() - startedAt) / 1000) * charsPerSecond)
+    const estimate = Math.min(text.length * 0.97, ((performance.now() - startedAt) / 1000) * charsPerSecond * rate)
     patch({ progress: progressAt(reading.units, index, spokenChars || estimate) })
   }, 100)
 }
@@ -291,13 +307,17 @@ export function speakNew(key: string, markdown: string): void {
 
 /** Liga ou desliga a leitura automática; desligar também cala o que estiver tocando. */
 export function setAutoSpeech(on: boolean): void {
-  try {
-    localStorage.setItem(AUTO_KEY, on ? '1' : '0')
-  } catch {
-    // localStorage indisponível (modo privado): segue só em memória.
-  }
+  save(AUTO_KEY, on ? '1' : '0')
   useSpeech.setState({ auto: on })
   if (!on) stopSpeaking()
+}
+
+/** Troca a velocidade da voz; tocando, a frase atual recomeça já nela (a fala não muda de ritmo no meio). */
+export function setSpeechRate(rate: number): void {
+  save(RATE_KEY, String(rate))
+  useSpeech.setState({ rate })
+  const reading = useSpeech.getState().reading
+  if (reading?.playing) playFrom(reading.index)
 }
 
 /** Pausa no começo da frase atual; continuar repete a frase desde o início. */
