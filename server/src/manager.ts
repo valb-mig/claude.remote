@@ -41,6 +41,8 @@ export type CatalogEntry = {
   pcKind?: 'interactive' | 'background';
   /** Aprovações e perguntas aguardando resposta (só sessões do painel). */
   pending?: { requestId: string; kind: 'approval' | 'question' }[];
+  /** Subagentes trabalhando agora (só sessões do painel). */
+  agents?: number;
   pinned?: boolean;
 };
 
@@ -144,6 +146,9 @@ export class Manager extends EventEmitter {
       if (s.label && (entry.title === '(sem título)' || isDerivedName(entry.title, entry.cwd))) entry.title = s.label;
       entry.owner = 'panel';
       entry.state = s.state === 'starting' ? 'running' : s.state === 'exited' ? 'stopped' : s.state;
+      entry.agents = s.state === 'exited' ? undefined : s.agents.active || undefined;
+      // Turno encerrado com subagentes em segundo plano: a sessão ainda está trabalhando.
+      if (entry.state === 'idle' && entry.agents) entry.state = 'running';
       entry.waitingFor = s.waitingFor;
       entry.pcKind = undefined;
       entry.pending = s.pendingRequests();

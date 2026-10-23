@@ -5,6 +5,7 @@ import websocket from '@fastify/websocket';
 import Fastify, { LogController } from 'fastify';
 import type { WebSocket } from 'ws';
 import { mkdir } from 'node:fs/promises';
+import { agentTranscript } from './agents.ts';
 import type { Attachment } from './attachments.ts';
 import { HOST, MACHINE_NAME, PORT, UPLOADS_DIR, WEB_DIST } from './config.ts';
 import { HttpError } from './errors.ts';
@@ -101,6 +102,13 @@ app.get<{ Params: IdParams; Querystring: { limit?: number } }>(
   '/api/sessions/:id/history',
   { schema: { querystring: { type: 'object', properties: { limit: { type: 'integer', minimum: 1, maximum: 2000 } } } } },
   async (req) => manager.history(req.params.id, req.query.limit),
+);
+
+/** O que um subagente da conversa fez, do transcript salvo (ver agents.ts). */
+app.get<{ Params: IdParams & { toolUseId: string }; Querystring: { agentId?: string } }>(
+  '/api/sessions/:id/agents/:toolUseId',
+  { schema: { querystring: { type: 'object', properties: { agentId: { type: 'string', maxLength: 64 } } } } },
+  async (req) => agentTranscript(req.params.id, req.params.toolUseId, req.query.agentId),
 );
 
 app.post<{ Body: RunBody & { cwd?: string; prompt: string; title?: string; attachments?: Attachment[] } }>(
