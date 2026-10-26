@@ -102,6 +102,9 @@ app.get('/api/system', async () => ({ system: monitor.system, usage: monitor.usa
 // Uso por dia, para a home: grid do ano, gráficos e projetos (ver activity.ts).
 app.get('/api/activity', async () => activity());
 
+// A salinha: o que cada claudinho de cada conversa aberta está fazendo (ver office.ts).
+app.get('/api/office', async () => manager.office());
+
 app.get('/api/projects', async () => manager.projects());
 
 app.get<{ Params: IdParams; Querystring: { limit?: number } }>(

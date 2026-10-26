@@ -35,6 +35,14 @@ export class AgentTasks {
     return this.running.size;
   }
 
+  /** Chamadas da ferramenta Agent dos subagentes trabalhando agora (a salinha mostra cada um). */
+  runningCalls(): string[] {
+    return [...this.running].flatMap((taskId) => {
+      const call = this.calls.get(taskId);
+      return call ? [call] : [];
+    });
+  }
+
   fromMessage(msg: SDKMessage): PanelEvent[] {
     if (msg.type !== 'system') return [];
     switch (msg.subtype) {
