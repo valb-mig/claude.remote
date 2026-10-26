@@ -1,9 +1,9 @@
 import { createReadStream } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { CLAUDE_HOME } from './config.ts';
 import { HttpError } from './errors.ts';
+import { transcriptPath } from './transcript.ts';
 
 /**
  * Preço em US$ por milhão de tokens e janela de contexto de cada modelo, da tabela oficial
@@ -174,20 +174,13 @@ async function fileSpend(path: string, subagent: boolean): Promise<FileSpend> {
   return spend;
 }
 
-// IDs viram nomes de arquivo: nada de `..` nem `/`.
-const SAFE_ID = /^[\w-]{1,64}$/;
-
 /** Transcript da sessão e os dos subagentes: ~/.claude/projects/<projeto>/<sessão>.jsonl e <sessão>/subagents/agent-*.jsonl. */
 async function transcripts(sessionId: string): Promise<{ main: string; subagents: string[] } | null> {
-  const root = join(CLAUDE_HOME, 'projects');
-  for (const project of await readdir(root).catch(() => [])) {
-    const main = join(root, project, `${sessionId}.jsonl`);
-    if (!(await stat(main).then((s) => s.isFile(), () => false))) continue;
-    const dir = join(root, project, sessionId, 'subagents');
-    const names = await readdir(dir).catch(() => []);
-    return { main, subagents: names.filter((n) => n.endsWith('.jsonl')).map((n) => join(dir, n)) };
-  }
-  return null;
+  const main = await transcriptPath(sessionId);
+  if (!main) return null;
+  const dir = join(dirname(main), sessionId, 'subagents');
+  const names = await readdir(dir).catch(() => []);
+  return { main, subagents: names.filter((n) => n.endsWith('.jsonl')).map((n) => join(dir, n)) };
 }
 
 /**
@@ -195,7 +188,7 @@ async function transcripts(sessionId: string): Promise<{ main: string; subagents
  * sessão, aberta no painel, no PC ou só no histórico. O custo é o preço de tabela da API.
  */
 export async function sessionCost(sessionId: string): Promise<SessionCost> {
-  const files = SAFE_ID.test(sessionId) ? await transcripts(sessionId) : null;
+  const files = await transcripts(sessionId);
   if (!files) throw new HttpError(404, 'transcript_not_found');
   const [main, ...subs] = await Promise.all([fileSpend(files.main, false), ...files.subagents.map((p) => fileSpend(p, true))]);
 

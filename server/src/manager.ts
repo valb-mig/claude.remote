@@ -23,6 +23,7 @@ import { PanelSession, probeCommands, withProbe, type PanelSessionOptions } from
 import { searchProjectFiles } from './project-files.ts';
 import type { PlanUsage } from './system.ts';
 import { imageStore, type StoredImage } from './images.ts';
+import { transcriptCwd } from './transcript.ts';
 import type { MetaStore } from './meta.ts';
 import type { ResumeEntry } from './updater.ts';
 
@@ -325,7 +326,8 @@ export class Manager extends EventEmitter {
     if (own && !opts.fork) return own;
 
     const info = await getSessionInfo(sessionId);
-    if (!info?.cwd) throw new HttpError(404, 'session_not_found');
+    const cwd = info && (info.cwd ?? (await transcriptCwd(sessionId)));
+    if (!cwd) throw new HttpError(404, 'session_not_found');
 
     if (!opts.fork) {
       await this.live.refresh();
@@ -335,7 +337,7 @@ export class Manager extends EventEmitter {
       }
     }
     const priorMessages = (await getSessionMessages(sessionId)).length;
-    return this.adopt(new PanelSession({ ...opts, cwd: info.cwd, resume: sessionId, priorMessages }));
+    return this.adopt(new PanelSession({ ...opts, cwd, resume: sessionId, priorMessages }));
   }
 
   /** Assumir: encerra a sessão ociosa no PC e a retoma no painel. */
@@ -407,6 +409,8 @@ export class Manager extends EventEmitter {
   private async saved(): Promise<SDKSessionInfo[]> {
     if (this.savedCache && Date.now() - this.savedCache.at < SAVED_CACHE_MS) return this.savedCache.rows;
     const rows = await listSessions();
+    // O SDK não achou o `cwd` (primeira mensagem com imagem, ver transcriptCwd): lê do transcript.
+    await Promise.all(rows.filter((r) => !r.cwd).map(async (r) => (r.cwd = await transcriptCwd(r.sessionId))));
     this.savedCache = { at: Date.now(), rows };
     return rows;
   }
