@@ -16,13 +16,14 @@ import { cn } from '@/lib/utils'
 import { ComputerPage } from '@/pages/computer'
 import { HomePage } from '@/pages/home'
 import { NewChatPage } from '@/pages/new-chat'
+import { OfficePage } from '@/pages/office'
 import { ProjectsPage } from '@/pages/projects'
 import { SessionsPage } from '@/pages/sessions'
 import { SharePage } from '@/pages/share'
 import { ChatSplit } from '@/pages/split'
 
 export default function App() {
-  const [, navigate] = useLocation()
+  const [location, navigate] = useLocation()
   const wide = useWide()
 
   useEffect(() => {
@@ -46,6 +47,16 @@ export default function App() {
     navigator.serviceWorker?.addEventListener('message', onMessage)
     return () => navigator.serviceWorker?.removeEventListener('message', onMessage)
   }, [navigate])
+
+  // A salinha fica sozinha na tela, sem a lista nem as abas: é para deixar de fundo.
+  if (location === '/salinha') {
+    return (
+      <div className="flex h-dvh flex-col bg-background pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
+        <ConnectionBanner />
+        <OfficePage />
+      </div>
+    )
+  }
 
   return (
     // Na horizontal, o entalhe da câmera fica num dos lados.

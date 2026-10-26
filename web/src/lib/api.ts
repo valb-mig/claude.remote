@@ -8,6 +8,7 @@ import type {
   GitStatus,
   LoggedEvent,
   ModelOption,
+  OfficeRoom,
   PushPrefs,
   RunOptions,
   SessionCost,
@@ -54,6 +55,8 @@ export const api = {
   health: (m: string) =>
     request<{ ok: boolean; name?: string; tailnetHost: string | null; startedAt: number; home: string }>('GET', `${at(m)}/health`),
   projects: (m: string) => request<string[]>('GET', `${at(m)}/projects`),
+  /** A salinha: o que cada claudinho de cada conversa aberta faz agora. */
+  office: (m: string) => request<OfficeRoom[]>('GET', `${at(m)}/office`),
   /** Uso por dia para a home (grid do ano, gráficos, projetos). */
   activity: (m: string) => request<Activity>('GET', `${at(m)}/activity`),
   commands: (m: string, cwd: string) => request<CommandInfo[]>('GET', `${at(m)}/commands?cwd=${encodeURIComponent(cwd)}`),

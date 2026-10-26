@@ -218,3 +218,12 @@ export type Activity = {
   projects: ActivityProject[]
 }
 
+/** Estação da salinha (ver server/src/office.ts). */
+export type OfficeActivity = 'web' | 'files' | 'edit' | 'command' | 'plan' | 'think' | 'ask' | 'background' | 'idle'
+export type OfficeWorker = { id: string; name: string; role: string; activity: OfficeActivity; detail?: string }
+/** Um setor: uma conversa aberta e quem trabalha nela. `machine` é posto pelo app. */
+export type OfficeRoom = Pick<CatalogEntry, 'sessionId' | 'title' | 'cwd' | 'state' | 'waitingFor'> & {
+  owner: 'panel' | 'pc'
+  workers: OfficeWorker[]
+  machine?: string
+}
