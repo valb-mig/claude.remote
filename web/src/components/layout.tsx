@@ -1,11 +1,12 @@
-import { FolderGit2, Loader2, MessagesSquare, Monitor } from 'lucide-react'
+import { FolderGit2, House, Loader2, MessagesSquare, Monitor } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'wouter'
 import { useStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
 
 const TABS = [
-  { href: '/', label: 'Sessões', icon: MessagesSquare },
+  { href: '/', label: 'Início', icon: House },
+  { href: '/conversas', label: 'Conversas', icon: MessagesSquare },
   { href: '/projetos', label: 'Projetos', icon: FolderGit2 },
   { href: '/computador', label: 'Computador', icon: Monitor },
 ]
@@ -15,10 +16,14 @@ export function BottomNav() {
   const [location] = useLocation()
   const attention = useStore((s) => s.catalog.reduce((n, c) => n + (c.state === 'waiting' ? 1 : 0), 0))
   return (
-    <nav className="grid shrink-0 grid-cols-3 border-t bg-background pb-[env(safe-area-inset-bottom)] compact:w-20 compact:grid-cols-1 compact:content-center compact:border-t-0 compact:border-r compact:pb-0">
+    <nav className="grid shrink-0 grid-cols-4 border-t bg-background pb-[env(safe-area-inset-bottom)] compact:w-20 compact:grid-cols-1 compact:content-center compact:border-t-0 compact:border-r compact:pb-0">
       {TABS.map(({ href, label, icon: Icon }) => {
-        // No PC, a lista de sessões fica ao lado da conversa aberta.
-        const active = href === '/' ? location === '/' || location.startsWith('/s/') || location === '/nova' : location.startsWith(href)
+        const active =
+          href === '/'
+            ? location === '/'
+            : href === '/conversas'
+              ? location.startsWith('/conversas') || location.startsWith('/s/') || location === '/nova'
+              : location.startsWith(href)
         return (
           <Link
             key={href}
@@ -30,7 +35,7 @@ export function BottomNav() {
           >
             <Icon className="size-5" />
             {label}
-            {href === '/' && attention > 0 && (
+            {href === '/conversas' && attention > 0 && (
               <span className="absolute top-1.5 left-1/2 ml-2 min-w-4 rounded-full bg-amber-500 px-1 text-center text-[10px] leading-4 font-semibold text-white">
                 {attention}
               </span>

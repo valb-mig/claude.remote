@@ -1,0 +1,11 @@
+/**
+ * Última aba visitada (Início, Conversas, Projetos, Computador): o "voltar" de uma conversa leva
+ * para onde a pessoa estava, não sempre para a mesma lista.
+ */
+let last = '/'
+
+export function rememberTab(path: string): void {
+  last = path
+}
+
+export const backHref = (): string => last

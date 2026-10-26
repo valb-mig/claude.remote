@@ -79,6 +79,7 @@ import { useMachine, useMachines } from '@/lib/machines'
 import { closeChat, openBeside, swapChat, usePane, useSplit } from '@/lib/split'
 import { onLiveEvent, selectView, subscribe, unsubscribe, useStore } from '@/lib/store'
 import type { ContextUsage, LoggedEvent, RunOptions } from '@/lib/types'
+import { backHref } from '@/lib/tabs'
 import { cn } from '@/lib/utils'
 
 /**
@@ -392,7 +393,7 @@ export function ChatPage({ id }: { id: string }) {
         >
           {/* No PC a lista de conversas já está ao lado. */}
           <Button variant="ghost" size="icon" asChild aria-label="Voltar" className="lg:hidden">
-            <Link href="/">
+            <Link href={backHref()}>
               <ArrowLeft />
             </Link>
           </Button>

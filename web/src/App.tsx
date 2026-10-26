@@ -1,20 +1,20 @@
-import { PanelLeftOpen, Plus } from 'lucide-react'
 import { useEffect } from 'react'
-import { Link, Redirect, Route, Switch, useLocation } from 'wouter'
+import { Redirect, Route, Switch, useLocation } from 'wouter'
 import { BottomNav, ConnectionBanner } from '@/components/layout'
 import { SidebarRail } from '@/components/sidebar-rail'
-import { Button } from '@/components/ui/button'
 import { useWide } from '@/lib/hooks'
 import { loadMachines } from '@/lib/machines'
-import { setSidebarCollapsed, useSidebar } from '@/lib/sidebar'
+import { useSidebar } from '@/lib/sidebar'
 import { useSplit } from '@/lib/split'
 import { startOutbox } from '@/lib/outbox'
 import { startSounds } from '@/lib/sounds'
 import { syncPush } from '@/lib/push'
 import { connect } from '@/lib/store'
 import { watchUpdates } from '@/lib/update'
+import { rememberTab } from '@/lib/tabs'
 import { cn } from '@/lib/utils'
 import { ComputerPage } from '@/pages/computer'
+import { HomePage } from '@/pages/home'
 import { NewChatPage } from '@/pages/new-chat'
 import { ProjectsPage } from '@/pages/projects'
 import { SessionsPage } from '@/pages/sessions'
@@ -63,7 +63,7 @@ export default function App() {
           <Route path="/compartilhar">
             <SharePage />
           </Route>
-          <Route path="/">{wide ? <NoChatOpen /> : <TabPages wide={false} />}</Route>
+          <Route path="/">{wide ? <WideHome /> : <TabPages wide={false} />}</Route>
           <Route>
             <TabPages wide={wide} />
           </Route>
@@ -95,14 +95,20 @@ function Sidebar() {
   )
 }
 
-/** Sessões, Projetos e Computador; no celular deitado, as abas viram uma coluna na lateral. */
+/** Início, Conversas, Projetos e Computador; no celular deitado, as abas viram uma coluna na lateral. */
 function TabPages({ wide }: { wide: boolean }) {
+  const [location] = useLocation()
+  // O "voltar" de uma conversa leva de volta à aba de onde ela foi aberta.
+  useEffect(() => rememberTab(location), [location])
   return (
     <div className="flex min-h-0 flex-1 flex-col compact:flex-row-reverse">
       <main className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-3xl">
           <Switch>
             <Route path="/">
+              <HomePage />
+            </Route>
+            <Route path="/conversas">
               <SessionsPage />
             </Route>
             <Route path="/projetos">
@@ -122,30 +128,12 @@ function TabPages({ wide }: { wide: boolean }) {
   )
 }
 
-/** Tela larga sem conversa aberta: a lista já está ao lado (ou recolhida na alça). */
-function NoChatOpen() {
-  const collapsed = useSidebar((s) => s.collapsed)
+/** Tela larga sem conversa aberta: a home, com a lista de conversas ao lado (ou recolhida na alça). */
+function WideHome() {
+  useEffect(() => rememberTab('/'), [])
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
-      <img src="/pwa-192.png" alt="" className="size-16 rounded-2xl" />
-      <div className="space-y-1">
-        <h1 className="text-lg font-semibold">Claude Remote</h1>
-        <p className="text-sm text-muted-foreground">
-          {collapsed ? 'Abra a lista de conversas ou comece uma nova.' : 'Escolha uma conversa ao lado ou comece uma nova.'}
-        </p>
-      </div>
-      <div className="flex flex-wrap justify-center gap-2">
-        {collapsed && (
-          <Button variant="outline" onClick={() => setSidebarCollapsed(false)}>
-            <PanelLeftOpen /> Ver conversas
-          </Button>
-        )}
-        <Button asChild>
-          <Link href="/nova">
-            <Plus /> Nova conversa
-          </Link>
-        </Button>
-      </div>
-    </div>
+    <main className="min-h-0 flex-1 overflow-y-auto">
+      <HomePage />
+    </main>
   )
 }

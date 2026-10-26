@@ -1,5 +1,6 @@
 import { HOME, baseOf, machineOf } from './machines'
 import type {
+  Activity,
   AttachmentPayload,
   CommandInfo,
   ContextUsage,
@@ -53,6 +54,8 @@ export const api = {
   health: (m: string) =>
     request<{ ok: boolean; name?: string; tailnetHost: string | null; startedAt: number; home: string }>('GET', `${at(m)}/health`),
   projects: (m: string) => request<string[]>('GET', `${at(m)}/projects`),
+  /** Uso por dia para a home (grid do ano, gráficos, projetos). */
+  activity: (m: string) => request<Activity>('GET', `${at(m)}/activity`),
   commands: (m: string, cwd: string) => request<CommandInfo[]>('GET', `${at(m)}/commands?cwd=${encodeURIComponent(cwd)}`),
   files: (m: string, cwd: string, q: string) =>
     request<string[]>('GET', `${at(m)}/files?cwd=${encodeURIComponent(cwd)}&q=${encodeURIComponent(q)}`),
