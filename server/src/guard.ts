@@ -55,10 +55,12 @@ export async function refreshTailnet(policy: AccessPolicy): Promise<boolean> {
 export function accessGuard(policy: AccessPolicy) {
   return async (req: FastifyRequest, reply: FastifyReply) => {
     const host = req.headers.host ?? '';
+    // Numa porta HTTPS extra do `tailscale serve` (ex.: uma instância de teste em :10000), o Host traz a porta.
+    const name = host.replace(/:\d+$/, '');
     const viaTailnet =
-      host === policy.tailnetHost || 'x-forwarded-for' in req.headers || 'tailscale-user-login' in req.headers;
+      name === policy.tailnetHost || 'x-forwarded-for' in req.headers || 'tailscale-user-login' in req.headers;
 
-    if (!policy.localHosts.has(host) && host !== policy.tailnetHost) {
+    if (!policy.localHosts.has(host) && name !== policy.tailnetHost) {
       return reply.code(403).send({ error: 'host_not_allowed' });
     }
     if (viaTailnet) {

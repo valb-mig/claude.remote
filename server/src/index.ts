@@ -5,6 +5,7 @@ import websocket from '@fastify/websocket';
 import Fastify, { LogController } from 'fastify';
 import type { WebSocket } from 'ws';
 import { mkdir } from 'node:fs/promises';
+import { activity } from './activity.ts';
 import { agentTranscript } from './agents.ts';
 import type { Attachment } from './attachments.ts';
 import { HOST, MACHINE_NAME, PORT, UPLOADS_DIR, WEB_DIST } from './config.ts';
@@ -97,6 +98,12 @@ app.get('/api/machines', async () => ({ name: MACHINE_NAME, machines: await mach
 app.get('/api/sessions', async () => manager.catalog());
 
 app.get('/api/system', async () => ({ system: monitor.system, usage: monitor.usage }));
+
+// Uso por dia, para a home: grid do ano, gráficos e projetos (ver activity.ts).
+app.get('/api/activity', async () => activity());
+
+// A salinha: o que cada claudinho de cada conversa aberta está fazendo (ver office.ts).
+app.get('/api/office', async () => manager.office());
 
 app.get('/api/projects', async () => manager.projects());
 

@@ -1,4 +1,4 @@
-import { FolderGit2, MessagesSquare, Monitor, OctagonAlert, PanelLeftClose, PanelLeftOpen, Plus, TriangleAlert } from 'lucide-react'
+import { Armchair, FolderGit2, House, MessagesSquare, Monitor, OctagonAlert, PanelLeftClose, PanelLeftOpen, Plus, TriangleAlert } from 'lucide-react'
 import { Link, useLocation } from 'wouter'
 import { severityOf } from '@/components/pc-status'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -147,6 +147,9 @@ export function SidebarRail() {
           <Plus />
         </RailItem>
         <div className="my-1 h-px w-8 bg-border" />
+        <RailItem label="Início" href="/" active={location === '/'}>
+          <House />
+        </RailItem>
         <RailItem
           label={attention ? `Sessões: ${attention} ${attention === 1 ? 'precisa' : 'precisam'} de você` : 'Sessões'}
           onClick={toggle}
@@ -161,6 +164,9 @@ export function SidebarRail() {
         </RailItem>
         <RailItem label="Computador" href="/computador" active={location.startsWith('/computador')}>
           <Monitor />
+        </RailItem>
+        <RailItem label="Salinha: seus claudinhos trabalhando" href="/salinha">
+          <Armchair />
         </RailItem>
 
         <div className="mt-auto flex flex-col items-center gap-1.5">

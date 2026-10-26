@@ -12,6 +12,7 @@ import { projectName } from '@/lib/format'
 import { useGitStatus, useHome } from '@/lib/hooks'
 import { HOME, MachineContext, newChatUrl, noteSession, useMachines } from '@/lib/machines'
 import type { RunOptions } from '@/lib/types'
+import { backHref } from '@/lib/tabs'
 
 /** A nova conversa com a máquina escolhida (`?maquina=`) no contexto: `@`, comandos e arquivos vêm de lá. */
 export function NewChatPage() {
@@ -46,7 +47,7 @@ function NewChat({ machine }: { machine: string }) {
       <header className="flex shrink-0 items-center gap-1 border-b px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 compact:py-1">
         {/* No PC a lista de conversas já está ao lado. */}
         <Button variant="ghost" size="icon" asChild aria-label="Voltar" className="lg:hidden">
-          <Link href="/">
+          <Link href={backHref()}>
             <ArrowLeft />
           </Link>
         </Button>

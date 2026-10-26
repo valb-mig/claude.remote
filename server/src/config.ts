@@ -20,6 +20,10 @@ export const UPLOADS_DIR = env.UPLOADS_DIR ?? join(homedir(), '.cache', 'claude-
 // Build do frontend servido na mesma origem (sobrescrevível para testar outra versão).
 export const WEB_DIST = env.WEB_DIST ?? fileURLToPath(new URL('../../web/dist', import.meta.url));
 
+// Histórico de uso por dia (ver activity.ts): fica fora do cache, porque os transcripts de onde ele
+// sai são apagados pelo Claude Code depois de ~30 dias.
+export const ACTIVITY_FILE = env.ACTIVITY_FILE ?? join(homedir(), '.local', 'share', 'claude-remote', 'activity.json');
+
 // Raízes onde o painel pode iniciar sessões novas (separadas por ':').
 export const PROJECT_ROOTS = (env.PROJECT_ROOTS ?? join(homedir(), 'Projects')).split(':').filter(Boolean);
 

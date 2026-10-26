@@ -11,11 +11,11 @@ import { transcriptPath } from './transcript.ts';
  * Gravar no cache custa 1,25× a entrada (cache de 5 min) ou 2× (1 h); ler dele, a fração
  * `cacheRead` da entrada. Modelo que não estiver aqui aparece com os tokens, mas sem custo.
  */
-type Model = { input: number; output: number; cacheRead: number; window: number; over100k?: { input: number; output: number } };
+export type Model = { input: number; output: number; cacheRead: number; window: number; over100k?: { input: number; output: number } };
 
 const MI = 1_000_000;
 const K200 = 200_000;
-const MODELS: Record<string, Model> = {
+export const MODELS: Record<string, Model> = {
   'claude-fable-5-1': { input: 10, output: 50, cacheRead: 0.025, window: MI },
   'claude-mythos-5-1': { input: 10, output: 50, cacheRead: 0.025, window: MI },
   'claude-fable-5': { input: 10, output: 50, cacheRead: 0.1, window: MI },
@@ -44,10 +44,10 @@ const US_ONLY = 1.1;
 const WEB_SEARCH_USD = 10 / 1000;
 
 /** `claude-haiku-4-5-20251001` → `claude-haiku-4-5`; `claude-opus-5-5[1m]` → `claude-opus-5-5`. */
-const canonical = (model: string) => model.replace(/\[\w+\]$/, '').replace(/-\d{8}$/, '');
+export const canonical = (model: string) => model.replace(/\[\w+\]$/, '').replace(/-\d{8}$/, '');
 
 /** `usage` de uma resposta, como o Claude Code grava no transcript. */
-type Usage = {
+export type Usage = {
   input_tokens?: number;
   output_tokens?: number;
   cache_creation_input_tokens?: number;
@@ -58,7 +58,7 @@ type Usage = {
   inference_geo?: string;
 };
 
-function costOf(m: Model, u: Usage): number {
+export function costOf(m: Model, u: Usage): number {
   const write = u.cache_creation_input_tokens ?? 0;
   // Sem o detalhe por duração (versões antigas), a gravação conta como de 5 min.
   const write1h = u.cache_creation?.ephemeral_1h_input_tokens ?? 0;

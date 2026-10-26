@@ -16,6 +16,7 @@ import {
 import { AgentTasks } from './agents.ts';
 import { imageStore } from './images.ts';
 import { BackgroundTasks } from './tasks.ts';
+import { AGENT_TOOLS, workersFrom, type OfficeWorker, type OpenTool } from './office.ts';
 import { UPLOADS_DIR, childEnv } from './config.ts';
 import { readPlanUsage } from './claude-usage.ts';
 import type { PlanUsage } from './system.ts';
@@ -69,6 +70,8 @@ type PendingKind = 'approval' | 'question';
 type Pending = {
   kind: PendingKind;
   input: Record<string, unknown>;
+  /** Chamada que pede aprovação: na salinha, quem a fez vai até a porta. */
+  toolUseId?: string;
   suggestions?: PermissionUpdate[];
   questions?: Question[];
   resolve: (result: PermissionResult) => void;
@@ -118,6 +121,10 @@ export class PanelSession extends EventEmitter {
   private commandsCache?: Promise<SlashCommand[]>;
   private modelsCache?: Promise<ModelInfo[]>;
   private exited: Promise<void>;
+  /** Ferramentas em uso agora, por quem as chamou (a conversa ou um subagente), para a salinha. */
+  private readonly openTools = new Map<string, OpenTool>();
+  /** Nome e tipo de cada subagente, pela chamada da ferramenta Agent que o criou. */
+  private readonly agentCalls = new Map<string, { name: string; type: string }>();
 
   constructor(opts: PanelSessionOptions) {
     super();
@@ -333,7 +340,7 @@ export class PanelSession extends EventEmitter {
       // Pergunta malformada cai no fluxo de aprovação comum, que ao menos mostra o input.
       const questions = toolName === 'AskUserQuestion' ? parseQuestions(input) : [];
       const kind: PendingKind = questions.length ? 'question' : 'approval';
-      this.pending.set(requestId, { kind, input, suggestions: opts.suggestions, questions, resolve });
+      this.pending.set(requestId, { kind, input, suggestions: opts.suggestions, questions, resolve, toolUseId: opts.toolUseID });
 
       if (kind === 'question') {
         this.setState('waiting', 'input needed');
@@ -423,7 +430,12 @@ export class PanelSession extends EventEmitter {
     // Resultados de ferramentas podem trazer imagens (prints, arquivos lidos): vão para o cache.
     const sink = msg.type === 'user' ? imageStore.sink(this.id, (msg as { uuid?: string }).uuid ?? randomUUID()) : undefined;
     const { events, delta } = fromSdkMessage(msg, sink);
-    for (const ev of events) this.record(ev);
+    for (const ev of events) {
+      this.track(ev);
+      this.record(ev);
+    }
+    // Fim do turno: o que ficou sem resultado (turno interrompido) não está mais rodando.
+    if (msg.type === 'result') for (const [id, t] of this.openTools) if (t.scope === null) this.openTools.delete(id);
     if (delta) this.emit('delta', delta);
 
     const working = this.agents.active;
@@ -432,6 +444,35 @@ export class PanelSession extends EventEmitter {
     for (const ev of this.background.fromMessage(msg)) this.record(ev);
     // Subagente ou tarefa em segundo plano começou ou terminou: a lista de sessões mostra.
     if (this.agents.active !== working || this.background.list !== waiting) this.emit('state');
+  }
+
+  /** Quem está no setor desta conversa na salinha e o que cada um faz (ver office.ts). */
+  office(): OfficeWorker[] {
+    const agents = this.agents.runningCalls().map((id) => ({ id, ...(this.agentCalls.get(id) ?? { name: 'Subagente', type: 'subagente' }) }));
+    const working = new Set(agents.map((a) => a.id));
+    return workersFrom({
+      tools: [...this.openTools.values()].filter((t) => t.scope === null || working.has(t.scope)),
+      agents,
+      busy: this.state === 'running' || this.state === 'starting',
+      waiting: this.state === 'waiting',
+      waitingFor: this.waitingFor,
+      asking: new Set([...this.pending.values()].flatMap((p) => (p.toolUseId ? [p.toolUseId] : []))),
+      background: this.background.list.length > 0,
+    });
+  }
+
+  private track(ev: PanelEvent): void {
+    if (ev.kind === 'tool_result') {
+      this.openTools.delete(ev.toolUseId);
+      return;
+    }
+    if (ev.kind !== 'tool_use') return;
+    this.openTools.set(ev.id, { id: ev.id, name: ev.name, input: ev.input, scope: ev.parentToolUseId ?? null });
+    if (AGENT_TOOLS.has(ev.name)) {
+      const input = (ev.input ?? {}) as Record<string, unknown>;
+      const type = typeof input.subagent_type === 'string' && input.subagent_type ? input.subagent_type : 'general-purpose';
+      this.agentCalls.set(ev.id, { name: typeof input.description === 'string' && input.description ? input.description : type, type });
+    }
   }
 
   private updateSettings(patch: PanelSession['settings']): void {

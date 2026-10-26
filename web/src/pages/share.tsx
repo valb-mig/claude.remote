@@ -10,6 +10,7 @@ import { loadDraft, putDraft } from '@/lib/drafts'
 import { projectName, relativeTime } from '@/lib/format'
 import { SHARE_KEY, type Shared } from '@/lib/share'
 import { useStore } from '@/lib/store'
+import { backHref } from '@/lib/tabs'
 
 const RECENT_LIMIT = 30
 
@@ -84,7 +85,7 @@ export function SharePage() {
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex shrink-0 items-center gap-1 border-b px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2">
         <Button variant="ghost" size="icon" asChild aria-label="Voltar">
-          <Link href="/">
+          <Link href={backHref()}>
             <ArrowLeft />
           </Link>
         </Button>

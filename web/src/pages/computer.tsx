@@ -1,6 +1,7 @@
-import { RefreshCw } from 'lucide-react'
+import { Armchair, ChevronRight, RefreshCw } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'wouter'
 import { PageHeader } from '@/components/layout'
 import { MachineFilter } from '@/components/machine-filter'
 import { Meter, WindowMeter } from '@/components/pc-status'
@@ -63,6 +64,16 @@ export function ComputerPage() {
       <PageHeader title="Computador" />
       <MachineFilter all={false} className="px-4 pb-3" />
       <div className="space-y-4 px-4 pb-6">
+        {/* Link próprio, para deixar de fundo num tablet ou monitor (ver pages/office.tsx). */}
+        <Link href="/salinha" className="flex items-center gap-3 rounded-xl border bg-card p-3 hover:bg-muted/50 active:bg-muted">
+          <Armchair className="size-5 shrink-0 text-muted-foreground" />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium">Salinha</div>
+            <div className="text-xs text-muted-foreground">Seus claudinhos trabalhando num mini escritório, para deixar de fundo.</div>
+          </div>
+          <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+        </Link>
+
         <Card size="sm">
           <CardHeader>
             <CardTitle>Conexão</CardTitle>

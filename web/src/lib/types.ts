@@ -205,3 +205,25 @@ export type PushPrefs = { done: boolean; pc: boolean }
 
 /** Aviso que o PC manda ao service worker (server/src/push.ts). */
 export type PushPayload = { title: string; body: string; tag: string; url: string; ts: number }
+
+/** Uso de um dia, lido dos registros do PC (ver server/src/activity.ts). */
+export type ActivityDay = { date: string; sessions: number; remote: number; prompts: number; costUsd: number; tokens: number }
+export type ActivityProject = { cwd: string; sessions: number; prompts: number; costUsd: number; tokens: number }
+export type Activity = {
+  /** Só os dias com alguma atividade, do mais antigo ao mais novo. */
+  days: ActivityDay[]
+  /** Mensagens suas por dia da semana (0 = domingo) e hora, nos últimos 30 dias. */
+  hours: number[][]
+  /** Projetos dos últimos 30 dias, do que mais custou ao que menos. */
+  projects: ActivityProject[]
+}
+
+/** Estação da salinha (ver server/src/office.ts). */
+export type OfficeActivity = 'web' | 'files' | 'edit' | 'command' | 'plan' | 'think' | 'ask' | 'background' | 'idle'
+export type OfficeWorker = { id: string; name: string; role: string; activity: OfficeActivity; detail?: string }
+/** Um setor: uma conversa aberta e quem trabalha nela. `machine` é posto pelo app. */
+export type OfficeRoom = Pick<CatalogEntry, 'sessionId' | 'title' | 'cwd' | 'state' | 'waitingFor'> & {
+  owner: 'panel' | 'pc'
+  workers: OfficeWorker[]
+  machine?: string
+}
