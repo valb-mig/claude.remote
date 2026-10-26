@@ -150,7 +150,9 @@ export class PanelSession extends EventEmitter {
         forwardSubagentText: true,
         agentProgressSummaries: true,
         canUseTool: this.canUseTool,
-        env: childEnv(),
+        // Sem isto o SDK engole os `session_state_changed`, e um turno que o Claude começa sozinho
+        // (tarefa em segundo plano terminou) não tira a sessão de "Concluída".
+        env: { ...childEnv(), CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' },
         stderr: (data) => {
           this.stderrTail = (this.stderrTail + data).slice(-4_000);
         },
