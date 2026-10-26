@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { api } from './api'
 import type { GitStatus } from './types'
 
@@ -16,6 +16,20 @@ export function useMediaQuery(query: string): boolean {
 
 /** Tela larga (PC, tablet deitado): a lista de conversas fica fixa ao lado. Mesmo limite do `lg:` do Tailwind. */
 export const useWide = () => useMediaQuery('(min-width: 64rem)')
+
+/** Largura de um elemento, acompanhando a tela (girar o celular, abrir outra conversa ao lado). */
+export function useWidth(ref: React.RefObject<HTMLElement | null>): number {
+  const [width, setWidth] = useState(0)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const observer = new ResizeObserver(() => setWidth(el.clientWidth))
+    observer.observe(el)
+    setWidth(el.clientWidth)
+    return () => observer.disconnect()
+  }, [ref])
+  return width
+}
 
 /** Largura da janela, acompanhando o redimensionamento. */
 export function useWindowWidth(): number {

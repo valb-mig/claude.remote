@@ -137,3 +137,19 @@
     stroke-dashoffset: -11;
   }
 }
+
+/* Mapa mental (components/mindmap): o ponto do chat aberto a partir de um nó pisca para ser achado. */
+@keyframes flash-item {
+  0%,
+  35% {
+    background-color: rgb(14 165 233 / 0.14);
+    box-shadow: 0 0 0 6px rgb(14 165 233 / 0.14);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+.flash-item {
+  animation: flash-item 1.6s ease-out;
+}

@@ -1,6 +1,7 @@
 import { ArrowDown, ArrowRight, MessagesSquare, Minus, Plus, Scan } from 'lucide-react'
 import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { useWidth } from '@/lib/hooks'
 import { cn } from '@/lib/utils'
 import type { AgentNode, AgentStatus, AgentTree } from './model'
 import { STATUS, elapsed, useNow } from './status'
@@ -86,20 +87,6 @@ function curve({ from: a, to: b }: Link, dir: Dir): string {
 }
 
 const working = (s: AgentStatus) => s === 'running' || s === 'waiting'
-
-/** Largura disponível para o grafo, acompanhando a tela. */
-function useWidth(ref: React.RefObject<HTMLElement | null>): number {
-  const [width, setWidth] = useState(0)
-  useLayoutEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const observer = new ResizeObserver(() => setWidth(el.clientWidth))
-    observer.observe(el)
-    setWidth(el.clientWidth)
-    return () => observer.disconnect()
-  }, [ref])
-  return width
-}
 
 function GraphNode({ box, now, onOpen }: { box: Box; now: number; onOpen: (id: string) => void }) {
   const n = box.node!

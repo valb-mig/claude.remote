@@ -12,7 +12,9 @@ import {
   LockOpen,
   LogOut,
   Menu,
+  MessagesSquare,
   Monitor,
+  Network,
   Pencil,
   Pin,
   PinOff,
@@ -29,15 +31,20 @@ import { Link } from 'wouter'
 import { AgentSheet } from '@/components/agents/agent-sheet'
 import { AgentsSheet } from '@/components/agents/agents-sheet'
 import { AgentsContext, agentTree } from '@/components/agents/model'
+import { ApprovalCard } from '@/components/chat/approval-card'
 import { Composer } from '@/components/chat/composer'
-import { buildItems, type Keyed } from '@/components/chat/items'
+import { buildItems, type Item, type Keyed } from '@/components/chat/items'
 import { MessageList } from '@/components/chat/message-list'
+import { QuestionCard } from '@/components/chat/question-card'
 import { SpeechPlayer } from '@/components/chat/speech-player'
 import { StickyPrompt } from '@/components/chat/sticky-prompt'
 import { SummarySheet } from '@/components/chat/summary-sheet'
 import { DeleteSessionDialog } from '@/components/delete-session-dialog'
 import { ExplorerSheet } from '@/components/explorer'
 import { GitSheet } from '@/components/git-panel'
+import { MindMap } from '@/components/mindmap/mind-map'
+import { mindTree } from '@/components/mindmap/model'
+import { useChatDisplay } from '@/components/mindmap/view'
 import { RepoLink } from '@/components/repo-link'
 import { SessionPicker } from '@/components/session-picker'
 import { StateBadge } from '@/components/state-badge'
@@ -64,7 +71,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { api, errorMessage } from '@/lib/api'
 import { projectName, stateInfo } from '@/lib/format'
-import { useGitStatus, useHome } from '@/lib/hooks'
+import { useGitStatus, useHome, useWidth } from '@/lib/hooks'
 import { enqueue, useOutbox } from '@/lib/outbox'
 import { clearNotifications } from '@/lib/push'
 import { setAutoSpeech, speakNew, speechSupported, useSpeech } from '@/lib/speech'
@@ -310,6 +317,39 @@ export function ChatPage({ id }: { id: string }) {
     history.events === null,
   ])
 
+  // Mapa mental (components/mindmap): no lugar do chat ou, com espaço, ao lado dele.
+  const [display, setDisplay] = useChatDisplay()
+  const areaRef = useRef<HTMLDivElement>(null)
+  const roomy = useWidth(areaRef) >= 1000
+  const shown = display === 'both' && !roomy ? 'map' : display
+  const stateLabel = stateInfo(shownState, shownWaiting).label
+  const mapRoot = useMemo(
+    () => (shown === 'chat' ? null : mindTree({ items, title: entry?.title ?? 'Conversa', rootMeta: stateLabel, working, streaming: view.streaming, agents })),
+    [shown, items, entry?.title, stateLabel, working, view.streaming, agents],
+  )
+  // Aprovações e perguntas esperando: com só o mapa na tela, ficam acima do campo de mensagem.
+  const requests = useMemo(
+    () => items.filter((i): i is Extract<Item, { type: 'approval' | 'question' }> => (i.type === 'approval' || i.type === 'question') && !i.resolution),
+    [items],
+  )
+  const dockRef = useRef<HTMLDivElement>(null)
+  const flash = (el: HTMLElement | null | undefined) => {
+    if (!el) return
+    el.classList.remove('flash-item')
+    void el.offsetWidth // recomeça a animação se já estava piscando
+    el.classList.add('flash-item')
+  }
+  // Do mapa para o ponto do chat: o chat continua montado por baixo, então o item já está lá.
+  const jumpTo = (key: string) => {
+    if (shown === 'map') setDisplay('chat')
+    requestAnimationFrame(() => {
+      const el = scrollRef.current?.querySelector<HTMLElement>(`[data-item="${CSS.escape(key)}"]`)
+      el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      flash(el)
+    })
+  }
+  const openRequest = (key: string) => (shown === 'map' ? flash(dockRef.current) : jumpTo(key))
+
   const resumeCommand = entry?.cwd ? `cd '${entry.cwd}' && claude --resume ${id}` : `claude --resume ${id}`
 
   async function run(action: () => Promise<unknown>, success?: string) {
@@ -392,6 +432,16 @@ export function ChatPage({ id }: { id: string }) {
               {autoSpeech ? <Volume2 /> : <VolumeOff />}
             </Button>
           )}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setDisplay(shown === 'chat' ? 'map' : 'chat')}
+            aria-pressed={shown !== 'chat'}
+            aria-label={shown === 'chat' ? 'Ver como mapa mental' : 'Voltar ao chat'}
+            title={shown === 'chat' ? 'Mapa mental' : 'Chat'}
+          >
+            {shown === 'chat' ? <Network /> : <MessagesSquare />}
+          </Button>
           {agents.all.length > 0 && (
             <Button
               variant="ghost"
@@ -493,68 +543,93 @@ export function ChatPage({ id }: { id: string }) {
           )}
         </header>
 
-        <div className={cn('relative min-h-0 flex-1', pane.collapsed && 'hidden')}>
-          <StickyPrompt scrollRef={scrollRef} items={items} />
-          <div ref={scrollRef} onScroll={onScroll} className="absolute inset-0 overflow-y-auto">
-            <div ref={contentRef} className="mx-auto w-full max-w-3xl">
-              {history.events === null && !history.error ? (
-                <div className="space-y-4 p-4">
-                  <Skeleton className="ml-auto h-10 w-2/3" />
-                  <Skeleton className="h-24 w-full" />
-                  <Skeleton className="h-16 w-full" />
-                </div>
-              ) : (
-                <>
-                  {history.error && <p className="p-4 text-sm text-red-600 dark:text-red-400">{history.error}</p>}
-                  {items.length === 0 && queued.length === 0 && !working && !history.error && (
-                    <p className="p-4 text-center text-sm text-muted-foreground">Nenhuma mensagem ainda.</p>
-                  )}
-                  <MessageList
-                    items={items}
-                    queued={queued}
-                    sessionId={id}
-                    actionable={panelOpen}
-                    streaming={view.streaming}
-                    working={working}
-                    background={background}
-                    uses={uses}
-                    cwd={entry?.cwd}
-                  />
-                </>
-              )}
+        <div ref={areaRef} className={cn('relative flex min-h-0 flex-1', pane.collapsed && 'hidden')}>
+          <div className="relative min-w-0 flex-1" inert={shown === 'map'}>
+            <StickyPrompt scrollRef={scrollRef} items={items} />
+            <div ref={scrollRef} onScroll={onScroll} className="absolute inset-0 overflow-y-auto">
+              <div ref={contentRef} className="mx-auto w-full max-w-3xl">
+                {history.events === null && !history.error ? (
+                  <div className="space-y-4 p-4">
+                    <Skeleton className="ml-auto h-10 w-2/3" />
+                    <Skeleton className="h-24 w-full" />
+                    <Skeleton className="h-16 w-full" />
+                  </div>
+                ) : (
+                  <>
+                    {history.error && <p className="p-4 text-sm text-red-600 dark:text-red-400">{history.error}</p>}
+                    {items.length === 0 && queued.length === 0 && !working && !history.error && (
+                      <p className="p-4 text-center text-sm text-muted-foreground">Nenhuma mensagem ainda.</p>
+                    )}
+                    <MessageList
+                      items={items}
+                      queued={queued}
+                      sessionId={id}
+                      actionable={panelOpen}
+                      streaming={view.streaming}
+                      working={working}
+                      background={background}
+                      uses={uses}
+                      cwd={entry?.cwd}
+                    />
+                  </>
+                )}
+              </div>
             </div>
-          </div>
 
-          <div className="pointer-events-none absolute right-3 bottom-3 z-10 flex flex-col items-end gap-2">
-            {!atBottom && (
+            <div className="pointer-events-none absolute right-3 bottom-3 z-10 flex flex-col items-end gap-2">
+              {!atBottom && (
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  onClick={jumpToBottom}
+                  aria-label="Ir para a última mensagem"
+                  className="pointer-events-auto size-10 rounded-full border shadow-lg"
+                >
+                  <ChevronDown />
+                </Button>
+              )}
               <Button
                 variant="secondary"
                 size="icon"
-                onClick={jumpToBottom}
-                aria-label="Ir para a última mensagem"
-                className="pointer-events-auto size-10 rounded-full border shadow-lg"
+                onClick={() => setFollow(!follow)}
+                aria-pressed={follow}
+                aria-label={follow ? 'Acompanhando o fim: tocar para soltar o scroll' : 'Scroll solto: tocar para travar no fim'}
+                className={cn(
+                  'pointer-events-auto size-9 rounded-full border shadow-md backdrop-blur',
+                  follow ? 'bg-background/70 text-muted-foreground' : 'bg-background text-foreground',
+                )}
               >
-                <ChevronDown />
+                {follow ? <Lock /> : <LockOpen />}
               </Button>
-            )}
-            <Button
-              variant="secondary"
-              size="icon"
-              onClick={() => setFollow(!follow)}
-              aria-pressed={follow}
-              aria-label={follow ? 'Acompanhando o fim: tocar para soltar o scroll' : 'Scroll solto: tocar para travar no fim'}
-              className={cn(
-                'pointer-events-auto size-9 rounded-full border shadow-md backdrop-blur',
-                follow ? 'bg-background/70 text-muted-foreground' : 'bg-background text-foreground',
-              )}
-            >
-              {follow ? <Lock /> : <LockOpen />}
-            </Button>
+            </div>
           </div>
+          {mapRoot && (
+            <div className={shown === 'map' ? 'absolute inset-0 z-20' : 'relative w-[46%] shrink-0 border-l'}>
+              <MindMap
+                root={mapRoot}
+                title={entry?.title ?? 'Conversa'}
+                onJump={jumpTo}
+                onAgent={setAgentId}
+                onRequest={openRequest}
+                side={roomy ? { on: shown === 'both', toggle: () => setDisplay(shown === 'both' ? 'map' : 'both') } : null}
+              />
+            </div>
+          )}
         </div>
 
         {/* Encolhida (celular em pé, digitando na outra): some sem desmontar, sem perder rascunho nem leitura. */}
         <div className={pane.collapsed ? 'hidden' : 'contents'}>
+          {shown === 'map' && owner === 'panel' && requests.length > 0 && (
+            <div ref={dockRef} className="max-h-[45dvh] shrink-0 space-y-3 overflow-y-auto border-t bg-background px-4 py-3">
+              {requests.map((r) =>
+                r.type === 'approval' ? (
+                  <ApprovalCard key={r.key} type={r.type} req={r.req} agent={r.agent} sessionId={id} actionable={panelOpen} />
+                ) : (
+                  <QuestionCard key={r.key} type={r.type} req={r.req} sessionId={id} actionable={panelOpen} />
+                ),
+              )}
+            </div>
+          )}
           <SpeechPlayer sessionId={id} />
 
           {owner === 'pc' ? (
