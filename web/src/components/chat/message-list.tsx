@@ -311,7 +311,10 @@ export function MessageList({
     <GalleryContext value={gallery}>
       <div className="space-y-4 px-4 py-4">
         {items.map((item) => (
-          <ItemView key={item.key} item={item} sessionId={sessionId} actionable={actionable} turn={turns.get(item.key)} cwd={cwd} />
+          // `data-item`: o mapa mental leva até aqui ao tocar num nó.
+          <div key={item.key} data-item={item.key} className="scroll-mt-16 rounded-xl">
+            <ItemView item={item} sessionId={sessionId} actionable={actionable} turn={turns.get(item.key)} cwd={cwd} />
+          </div>
         ))}
         {queued.map((item) => (
           <QueuedBubble key={item.id} item={item} sessionId={sessionId} />
