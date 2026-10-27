@@ -11,7 +11,7 @@ import type { Attachment } from './attachments.ts';
 import { HOST, MACHINE_NAME, PORT, UPLOADS_DIR, WEB_DIST } from './config.ts';
 import { HttpError } from './errors.ts';
 import { listDir, rawProjectFile, readProjectFile } from './explorer.ts';
-import { gitDiff, gitStatus } from './git.ts';
+import { gitDiff, gitStatus, gitSummaries } from './git.ts';
 import type { LoggedEvent } from './events.ts';
 import { accessGuard, loadAccessPolicy, refreshTailnet } from './guard.ts';
 import { LiveRegistry } from './live.ts';
@@ -106,6 +106,10 @@ app.get('/api/activity', async () => activity());
 app.get('/api/office', async () => manager.office());
 
 app.get('/api/projects', async () => manager.projects());
+// Arquivos alterados e commits a enviar/receber de cada projeto; `fetch=1` consulta antes o remoto.
+app.get<{ Querystring: { fetch?: string } }>('/api/projects/git', async (req) =>
+  gitSummaries(await manager.projects(), req.query.fetch === '1'),
+);
 
 app.get<{ Params: IdParams; Querystring: { limit?: number } }>(
   '/api/sessions/:id/history',

@@ -62,15 +62,8 @@ function parseNumstat(out: string, into: Map<string, { add: number | null; del: 
   }
 }
 
-/** Estado do repositório; `null` se o projeto não usa git. */
-export async function gitStatus(cwd: string): Promise<GitStatus | null> {
-  let out: string;
-  try {
-    ({ stdout: out } = await git(cwd, ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all']));
-  } catch {
-    return null;
-  }
-
+/** `git status --porcelain=v2 --branch -z`: branch, upstream e arquivos, ainda sem as linhas alteradas. */
+function parseStatus(out: string): GitStatus {
   const status: GitStatus = { branch: null, upstream: null, ahead: 0, behind: 0, files: [], remote: null };
   const tokens = out.split('\0');
   for (let i = 0; i < tokens.length; i++) {
@@ -97,6 +90,21 @@ export async function gitStatus(cwd: string): Promise<GitStatus | null> {
       status.files.push({ path: line.slice(2), index: '?', worktree: '?', untracked: true, additions: null, deletions: null });
     }
   }
+  return status;
+}
+
+/** Só o `git status`; `null` se o projeto não usa git. */
+function readStatus(cwd: string): Promise<GitStatus | null> {
+  return git(cwd, ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all']).then(
+    (r) => parseStatus(r.stdout),
+    () => null,
+  );
+}
+
+/** Estado do repositório; `null` se o projeto não usa git. */
+export async function gitStatus(cwd: string): Promise<GitStatus | null> {
+  const status = await readStatus(cwd);
+  if (!status) return null;
 
   // Linhas alteradas: staged + não staged somados por arquivo.
   const counts = new Map<string, { add: number | null; del: number | null }>();
@@ -143,4 +151,67 @@ export async function gitDiff(cwd: string, path: string): Promise<string> {
     );
   }
   return out.length > MAX_DIFF ? `${out.slice(0, MAX_DIFF)}\n… diff cortado (${Math.round(out.length / 1024)} KB)` : out;
+}
+
+/** O que a lista de projetos mostra de cada repositório. */
+export type GitSummary = {
+  branch: string | null;
+  upstream: string | null;
+  /** Arquivos alterados, novos ou apagados, staged ou não. */
+  changed: number;
+  /** Commits ainda não enviados ao upstream. */
+  ahead: number;
+  /** Commits do upstream que ainda não vieram (até o último `git fetch`). */
+  behind: number;
+};
+
+const FETCH_EVERY_MS = 10 * 60_000;
+const FETCH_PARALLEL = 6;
+const fetches = new Map<string, { at: number; run: Promise<void> }>();
+
+/**
+ * `git fetch` do upstream, no máximo a cada 10 min por projeto. Nunca pede senha: sem chave ou
+ * credencial que funcione sozinha, falha calado e o projeto fica com o que já se sabia do remoto.
+ */
+function fetchRemote(cwd: string): Promise<void> {
+  const last = fetches.get(cwd);
+  if (last && Date.now() - last.at < FETCH_EVERY_MS) return last.run;
+  const run = exec('git', ['fetch', '--quiet'], {
+    cwd,
+    timeout: 20_000,
+    env: {
+      ...process.env,
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes -o ConnectTimeout=10',
+    },
+  }).then(
+    () => undefined,
+    () => undefined,
+  );
+  fetches.set(cwd, { at: Date.now(), run });
+  return run;
+}
+
+/**
+ * Resumo do git de cada projeto (os que não usam git ficam de fora). Com `fetch`, consulta antes
+ * o remoto dos que têm upstream, para saber se chegou commit novo.
+ */
+export async function gitSummaries(cwds: string[], fetch: boolean): Promise<Record<string, GitSummary>> {
+  const out: Record<string, GitSummary> = {};
+  const queue = [...cwds];
+  const worker = async () => {
+    for (let cwd = queue.shift(); cwd !== undefined; cwd = queue.shift()) {
+      let status = await readStatus(cwd);
+      if (status?.upstream && fetch) {
+        await fetchRemote(cwd);
+        status = (await readStatus(cwd)) ?? status;
+      }
+      if (status) {
+        const { branch, upstream, ahead, behind, files } = status;
+        out[cwd] = { branch, upstream, changed: files.length, ahead, behind };
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: FETCH_PARALLEL }, worker));
+  return out;
 }
