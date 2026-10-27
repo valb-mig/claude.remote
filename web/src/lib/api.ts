@@ -6,6 +6,7 @@ import type {
   ContextUsage,
   FileView,
   GitStatus,
+  GitSummary,
   LoggedEvent,
   ModelOption,
   OfficeRoom,
@@ -55,6 +56,9 @@ export const api = {
   health: (m: string) =>
     request<{ ok: boolean; name?: string; tailnetHost: string | null; startedAt: number; home: string }>('GET', `${at(m)}/health`),
   projects: (m: string) => request<string[]>('GET', `${at(m)}/projects`),
+  /** Git de cada projeto; `fetch` consulta antes o remoto (mais lento). */
+  projectsGit: (m: string, fetch = false) =>
+    request<Record<string, GitSummary>>('GET', `${at(m)}/projects/git${fetch ? '?fetch=1' : ''}`),
   /** A salinha: o que cada claudinho de cada conversa aberta faz agora. */
   office: (m: string) => request<OfficeRoom[]>('GET', `${at(m)}/office`),
   /** Uso por dia para a home (grid do ano, gráficos, projetos). */

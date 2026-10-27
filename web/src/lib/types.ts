@@ -199,6 +199,15 @@ export type GitStatus = {
   remote: string | null
 }
 
+/** Resumo do git de um projeto, para a lista de projetos (ver server/src/git.ts). */
+export type GitSummary = {
+  branch: string | null
+  upstream: string | null
+  changed: number
+  ahead: number
+  behind: number
+}
+
 
 /** O que este aparelho quer receber além de perguntas, aprovações e erros, que sempre avisam. */
 export type PushPrefs = { done: boolean; pc: boolean }
