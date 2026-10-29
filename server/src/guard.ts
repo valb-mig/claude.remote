@@ -48,6 +48,17 @@ export async function refreshTailnet(policy: AccessPolicy): Promise<boolean> {
 }
 
 /**
+ * Origem conhecida. Numa porta HTTPS extra do `tailscale serve` (ex.: uma instância de teste em
+ * :10000), o navegador manda a porta na origem — o app busca os próprios arquivos com `crossorigin`
+ * —, enquanto as origens guardadas não têm porta. O Host já é comparado assim (ver `accessGuard`).
+ */
+function knownOrigin(policy: AccessPolicy, origin: string): boolean {
+  if (policy.origins.has(origin)) return true;
+  const name = origin.replace(/^(https:\/\/[^/:]+):\d+$/, '$1');
+  return name !== origin && policy.origins.has(name);
+}
+
+/**
  * Sem login próprio: a identidade vem do Tailscale. Barra DNS rebinding (Host),
  * CSRF de outros sites no navegador do PC (Origin + JSON) e acessos do tailnet
  * que não sejam do dono.
@@ -69,7 +80,7 @@ export function accessGuard(policy: AccessPolicy) {
     }
 
     const origin = req.headers.origin;
-    if (origin && !policy.origins.has(origin)) {
+    if (origin && !knownOrigin(policy, origin)) {
       return reply.code(403).send({ error: 'origin_not_allowed' });
     }
     // App servido por outra máquina sua (ver machines.ts): o navegador só entrega a resposta com
