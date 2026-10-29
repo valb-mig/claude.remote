@@ -2,10 +2,11 @@ import { Armchair, FolderGit2, House, MessagesSquare, Monitor, OctagonAlert, Pan
 import { Link, useLocation } from 'wouter'
 import { severityOf } from '@/components/pc-status'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { bytes, resetTime } from '@/lib/format'
+import { bytes, resetTime, shortDuration } from '@/lib/format'
 import { HOME, useMachineFilter, useMachines } from '@/lib/machines'
 import { setSidebarCollapsed, useSidebar } from '@/lib/sidebar'
 import { useStore } from '@/lib/store'
+import { useWakatimeToday } from '@/lib/wakatime'
 import type { UsageWindow } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -14,14 +15,32 @@ const RING = {
   normal: { stroke: 'stroke-sky-500', track: 'stroke-sky-500/20' },
   warning: { stroke: 'stroke-[#fab219]', track: 'stroke-[#fab219]/25' },
   critical: { stroke: 'stroke-[#d03b3b]', track: 'stroke-[#d03b3b]/25' },
+  // Horas de hoje: encher é bom, e bater a meta fica em verde (ver o anel do WakaTime).
+  done: { stroke: 'stroke-emerald-500', track: 'stroke-emerald-500/20' },
 }
 const R = 15
 const CIRCUMFERENCE = 2 * Math.PI * R
 
-/** Anel de progresso com a porcentagem no meio; alerta e crítico vêm com ícone, para não depender só da cor. */
-function Ring({ label, percent, tip }: { label: string; percent: number | null; tip: string }) {
+/**
+ * Anel de progresso com a porcentagem no meio; alerta e crítico vêm com ícone, para não depender
+ * só da cor. `text` troca o que vai no meio e `level` desliga a escala de severidade, para o anel
+ * em que encher não é problema nenhum.
+ */
+function Ring({
+  label,
+  percent,
+  tip,
+  text,
+  level: fixed,
+}: {
+  label: string
+  percent: number | null
+  tip: string
+  text?: string
+  level?: keyof typeof RING
+}) {
   const known = percent !== null
-  const level = known ? severityOf(percent) : 'normal'
+  const level = fixed ?? (known ? severityOf(percent) : 'normal')
   const Icon = level === 'critical' ? OctagonAlert : level === 'warning' ? TriangleAlert : null
   const fill = known ? Math.min(100, Math.max(0, percent)) : 0
   return (
@@ -50,7 +69,7 @@ function Ring({ label, percent, tip }: { label: string; percent: number | null; 
               )}
             </svg>
             <span className="absolute inset-0 flex items-center justify-center text-[10px] font-semibold tabular-nums">
-              {known ? `${Math.round(percent)}%` : '—'}
+              {text ?? (known ? `${Math.round(percent)}%` : '—')}
             </span>
           </span>
           <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
@@ -134,6 +153,7 @@ export function SidebarRail() {
   const of = (text: string) => (name ? `${name} · ${text}` : text)
   const collapsed = useSidebar((s) => s.collapsed)
   const toggle = () => setSidebarCollapsed(!collapsed)
+  const coding = useWakatimeToday(machine)
   const plan = usage?.plan?.available ? usage.plan : null
   const memory = system ? (system.memory.used / system.memory.total) * 100 : null
 
@@ -170,6 +190,15 @@ export function SidebarRail() {
         </RailItem>
 
         <div className="mt-auto flex flex-col items-center gap-1.5">
+          {coding && (
+            <Ring
+              label="Hoje"
+              percent={(coding.seconds / (coding.goalHours * 3600)) * 100}
+              level={coding.seconds >= coding.goalHours * 3600 ? 'done' : 'normal'}
+              text={shortDuration(coding.seconds)}
+              tip={of(`Codando hoje: ${coding.text} · meta de ${coding.goalHours} h (WakaTime)`)}
+            />
+          )}
           <Ring
             label="CPU"
             percent={system ? system.cpu.percent : null}

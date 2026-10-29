@@ -81,6 +81,7 @@ import { onLiveEvent, selectView, subscribe, unsubscribe, useStore } from '@/lib
 import type { ContextUsage, LoggedEvent, RunOptions } from '@/lib/types'
 import { backHref } from '@/lib/tabs'
 import { cn } from '@/lib/utils'
+import { useActivityPing } from '@/lib/wakatime'
 
 /**
  * Histórico salvo da conversa. Com a sessão aberta no painel, o servidor devolve só o que
@@ -227,6 +228,8 @@ export function ChatPage({ id }: { id: string }) {
   const machine = useMachine()
   const machineLabel = useMachines((s) => (s.machines.length > 1 ? s.machines.find((m) => m.id === machine)?.name : undefined))
   const rekeyed = useStore((s) => s.rekeys[id])
+  // O tempo que você passa nesta conversa conta no WakaTime, como o do Claude (ver lib/wakatime.ts).
+  useActivityPing(machine, entry?.cwd)
   const [summaryOpen, setSummaryOpen] = useState(false)
   const [confirmTakeover, setConfirmTakeover] = useState(false)
   const [renaming, setRenaming] = useState<string | null>(null)

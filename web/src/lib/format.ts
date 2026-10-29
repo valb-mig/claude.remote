@@ -123,3 +123,13 @@ export function resetTime(iso: string | null): string {
   if (date.toDateString() === new Date().toDateString()) return `às ${time}`
   return `${date.toLocaleDateString('pt-BR', { weekday: 'short' })} ${time}`
 }
+
+/** Duração curta o bastante para caber dentro de um anel: "47min", "3h21", "12h". */
+export function shortDuration(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds / 60))
+  const h = Math.floor(total / 60)
+  const m = total % 60
+  if (h === 0) return `${m}min`
+  if (h >= 10) return `${h}h`
+  return `${h}h${String(m).padStart(2, '0')}`
+}

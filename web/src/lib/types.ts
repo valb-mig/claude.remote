@@ -209,6 +209,9 @@ export type GitSummary = {
 }
 
 
+/** Quanto você já codou hoje pelo WakaTime (ver server/src/wakatime.ts). */
+export type WakaToday = { seconds: number; text: string; goalHours: number }
+
 /** O que este aparelho quer receber além de perguntas, aprovações e erros, que sempre avisam. */
 export type PushPrefs = { done: boolean; pc: boolean }
 

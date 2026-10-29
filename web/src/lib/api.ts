@@ -15,6 +15,7 @@ import type {
   SessionCost,
   TreeEntry,
   UpdateStatus,
+  WakaToday,
 } from './types'
 
 export class ApiError extends Error {
@@ -89,6 +90,10 @@ export const api = {
   tree: (m: string, cwd: string, path: string) => request<TreeEntry[]>('GET', `${at(m)}/tree?${project(cwd, path)}`),
   file: (m: string, cwd: string, path: string) => request<FileView>('GET', `${at(m)}/file?${project(cwd, path)}`),
   git: (m: string, cwd: string) => request<GitStatus | null>('GET', `${at(m)}/git?${project(cwd)}`),
+  /** Quanto você já codou hoje; `null` quando a máquina não tem o wakatime-cli. */
+  wakatimeToday: (m: string) => request<{ today: WakaToday | null }>('GET', `${at(m)}/wakatime`),
+  /** Avisa que você está mexendo no painel, para o tempo contar no WakaTime (ver lib/wakatime.ts). */
+  wakatime: (m: string, body: { cwd: string; path?: string; category?: 'code reviewing' | 'planning' }) => post(`${at(m)}/wakatime`, body),
   gitDiff: (m: string, cwd: string, path: string) => request<{ diff: string }>('GET', `${at(m)}/git/diff?${project(cwd, path)}`),
   update: (m: string) => request<UpdateStatus>('GET', `${at(m)}/update`),
   startUpdate: (m: string) => post<UpdateStatus>(`${at(m)}/update`),
