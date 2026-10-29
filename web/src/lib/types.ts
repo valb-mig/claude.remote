@@ -228,11 +228,19 @@ export type Activity = {
 }
 
 /** Estação da salinha (ver server/src/office.ts). */
-export type OfficeActivity = 'web' | 'files' | 'edit' | 'command' | 'plan' | 'think' | 'ask' | 'background' | 'idle'
+export type OfficeActivity = 'web' | 'files' | 'edit' | 'command' | 'plan' | 'think' | 'ask' | 'compact' | 'background' | 'idle'
 export type OfficeWorker = { id: string; name: string; role: string; activity: OfficeActivity; detail?: string }
+/** O que acabou de acontecer na conversa, para a salinha animar uma vez (ver server/src/office.ts). */
+export type OfficeEventKind = 'edit' | 'error' | 'test-pass' | 'test-fail' | 'commit' | 'push' | 'skill'
+export type OfficeEvent = { id: string; at: number; kind: OfficeEventKind; worker: string; detail?: string }
+export type OfficeTodos = { done: number; total: number; current?: string }
 /** Um setor: uma conversa aberta e quem trabalha nela. `machine` é posto pelo app. */
 export type OfficeRoom = Pick<CatalogEntry, 'sessionId' | 'title' | 'cwd' | 'state' | 'waitingFor'> & {
   owner: 'panel' | 'pc'
   workers: OfficeWorker[]
+  /** Ausentes em servidores antigos. */
+  events?: OfficeEvent[]
+  todos?: OfficeTodos
+  model?: string
   machine?: string
 }

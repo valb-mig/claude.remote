@@ -69,8 +69,12 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
  * conversa) e os funcionários (os subagentes) indo até a estação do que estão fazendo. Para deixar de fundo.
  */
 export function OfficePage() {
-  // `?demo`: um escritório de mentira, cheio, para ver como fica.
-  const demo = new URLSearchParams(useSearch()).has('demo')
+  // `?demo`: um escritório de mentira, cheio, para ver como fica; `?hora=21` e `?chuva` mudam o céu.
+  const params = new URLSearchParams(useSearch())
+  const demo = params.has('demo')
+  const hour = params.has('hora') ? Number(params.get('hora')) : NaN
+  const rain = params.has('chuva')
+  const clock = useMemo(() => ({ hour: hour >= 0 && hour < 24 ? hour : undefined, rain }), [hour, rain])
   const live = useOffice()
   const fake = useDemoOffice(demo)
   const rooms = demo ? fake : live
@@ -130,7 +134,7 @@ export function OfficePage() {
           <Skeleton className="mx-auto aspect-[3/1.3] w-full max-w-3xl rounded-xl" />
         ) : (
           <>
-            <PixelOffice rooms={rooms} />
+            <PixelOffice rooms={rooms} clock={clock} />
             {rooms.length === 0 && (
               <p className="p-6 text-center text-sm text-muted-foreground">
                 Nenhuma conversa aberta. Quando você abrir uma, no celular ou no PC, ela ganha um cômodo aqui.
