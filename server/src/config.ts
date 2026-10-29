@@ -40,6 +40,11 @@ const WHISPER_DIR = join(homedir(), '.local', 'share', 'claude-remote', 'whisper
 export const WHISPER_CLI = env.WHISPER_CLI ?? join(WHISPER_DIR, 'whisper.cpp', 'build', 'bin', 'whisper-cli');
 export const WHISPER_MODEL = env.WHISPER_MODEL ?? join(WHISPER_DIR, 'models', 'ggml-small-q5_1.bin');
 
+// O seu tempo no painel vai para o WakaTime por este binário (ver wakatime.ts e o README).
+export const WAKATIME_CLI = env.WAKATIME_CLI ?? join(homedir(), '.wakatime', 'wakatime-cli');
+// Quantas horas de hoje enchem o anel do WakaTime na alça do PC.
+export const WAKATIME_GOAL_HOURS = Number(env.WAKATIME_GOAL_HOURS ?? 4) || 4;
+
 // Logins Tailscale autorizados; vazio = detectar o dono deste nó.
 export const ALLOWED_LOGINS = (env.ALLOWED_LOGINS ?? '').split(',').filter(Boolean);
 
