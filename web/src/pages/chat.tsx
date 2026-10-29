@@ -72,6 +72,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { api, errorMessage } from '@/lib/api'
 import { projectName, stateInfo } from '@/lib/format'
 import { useGitStatus, useHome, useWidth } from '@/lib/hooks'
+import { useGlass } from '@/lib/wallpaper'
 import { enqueue, useOutbox } from '@/lib/outbox'
 import { clearNotifications } from '@/lib/push'
 import { setAutoSpeech, speakNew, speechSupported, useSpeech } from '@/lib/speech'
@@ -314,6 +315,7 @@ export function ChatPage({ id }: { id: string }) {
   const git = useGitStatus(machine, project, turns)
   // Conversa parada: modelo/esforço/modo escolhidos agora valem quando ela for retomada.
   const [pending, setPending] = useState<RunOptions>({})
+  const glass = useGlass()
   const { scrollRef, contentRef, onScroll, atBottom, follow, setFollow, jumpToBottom } = useAutoScroll([
     items.length,
     queued.length,
@@ -389,7 +391,7 @@ export function ChatPage({ id }: { id: string }) {
       <div className="flex min-h-0 flex-1 flex-col">
         <header
           className={cn(
-            'flex shrink-0 items-center gap-1 border-b px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 compact:py-1',
+            'flex shrink-0 items-center gap-1 border-b bg-background px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 compact:py-1',
             // Lado a lado: a conversa em foco (a que recebe o que é escolhido na lista) ganha uma faixa no topo.
             pane.split && pane.focused && 'shadow-[inset_0_2px_0_var(--color-primary)]',
           )}
@@ -549,6 +551,15 @@ export function ChatPage({ id }: { id: string }) {
 
         <div ref={areaRef} className={cn('relative flex min-h-0 flex-1', pane.collapsed && 'hidden')}>
           <div className="relative min-w-0 flex-1" inert={shown === 'map'}>
+            {/* A lâmina de vidro embaixo da coluna de mensagens: desfoca a cena atrás do texto, e as
+                margens seguem nítidas. Fica fora do scroller de propósito — dentro dele, o desfoque
+                seria recalculado a cada quadro de rolagem em vez de só quando a cena muda. */}
+            {glass && (
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-y-0 left-1/2 w-full max-w-3xl -translate-x-1/2 backdrop-blur-[1.5px]"
+              />
+            )}
             <StickyPrompt scrollRef={scrollRef} items={items} />
             <div ref={scrollRef} onScroll={onScroll} className="absolute inset-0 overflow-y-auto">
               <div ref={contentRef} className="mx-auto w-full max-w-3xl">
@@ -624,7 +635,13 @@ export function ChatPage({ id }: { id: string }) {
         {/* Encolhida (celular em pé, digitando na outra): some sem desmontar, sem perder rascunho nem leitura. */}
         <div className={pane.collapsed ? 'hidden' : 'contents'}>
           {shown === 'map' && owner === 'panel' && requests.length > 0 && (
-            <div ref={dockRef} className="max-h-[45dvh] shrink-0 space-y-3 overflow-y-auto border-t bg-background px-4 py-3">
+            <div
+              ref={dockRef}
+              className={cn(
+                'max-h-[45dvh] shrink-0 space-y-3 overflow-y-auto border-t px-4 py-3',
+                glass ? 'bg-background/70 backdrop-blur-md' : 'bg-background',
+              )}
+            >
               {requests.map((r) =>
                 r.type === 'approval' ? (
                   <ApprovalCard key={r.key} type={r.type} req={r.req} agent={r.agent} sessionId={id} actionable={panelOpen} />
@@ -637,7 +654,12 @@ export function ChatPage({ id }: { id: string }) {
           <SpeechPlayer sessionId={id} />
 
           {owner === 'pc' ? (
-            <div className="shrink-0 space-y-2 border-t px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            <div
+              className={cn(
+                'shrink-0 space-y-2 border-t px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]',
+                glass && 'bg-background/70 backdrop-blur-md',
+              )}
+            >
               <p className="text-xs text-muted-foreground">
                 {state === 'idle'
                   ? 'Aberta no PC e ociosa. Assumir encerra a sessão no PC e a continua aqui, com todo o contexto.'

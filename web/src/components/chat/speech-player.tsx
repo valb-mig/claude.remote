@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { SPEEDS, pauseSpeech, resumeSpeech, seekSpeech, setSpeechRate, stopSpeaking, useSpeech } from '@/lib/speech'
 import { cn } from '@/lib/utils'
+import { useGlass } from '@/lib/wallpaper'
 
 const STEPS = 1000
 
@@ -19,12 +20,13 @@ export function SpeechPlayer({ sessionId }: { sessionId: string }) {
   const reading = useSpeech((s) => (s.reading?.key.startsWith(`${sessionId}:`) ? s.reading : null))
   // Enquanto arrasta, a barra segue o dedo; a leitura só pula ao soltar.
   const [dragging, setDragging] = useState<number | null>(null)
+  const glass = useGlass()
   const rate = useSpeech((s) => s.rate)
   if (!reading) return null
   const next = SPEEDS[(SPEEDS.indexOf(rate) + 1) % SPEEDS.length]!
   const value = dragging ?? reading.progress
   return (
-    <div className="shrink-0 border-t bg-card px-3 py-2 compact:py-1">
+    <div className={cn('shrink-0 border-t px-3 py-2 compact:py-1', glass ? 'bg-card/70 backdrop-blur-md' : 'bg-card')}>
       <div className="mx-auto flex w-full max-w-3xl items-center gap-3">
         <Button
           size="icon"

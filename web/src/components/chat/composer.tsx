@@ -7,6 +7,7 @@ import { spliceSpoken, useDictation, useDictationSupport } from '@/lib/dictation
 import { cachedDraft, loadDraft, saveDraft } from '@/lib/drafts'
 import type { AttachmentPayload, ContextUsage, RunOptions, SessionSettings } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { useGlass } from '@/lib/wallpaper'
 import { AttachmentTray, useAttachments } from './attachment-tray'
 import { AddMenu, ContextRing, MODE_TONE, ModeMenu, ModelPill, findModel, footerButton, useModels } from './composer-controls'
 import { PromptInput, type PromptInputHandle } from './prompt-input'
@@ -114,6 +115,7 @@ export function Composer({
     if (loaded) saveDraft(sessionId, { text, attachments: files.items })
   }, [loaded, sessionId, text, files.items])
 
+  const glass = useGlass()
   const empty = !text.trim() && files.items.length === 0
   const showStop = working && empty && Boolean(onInterrupt)
   const mode = settings.permissionMode ?? 'default'
@@ -150,9 +152,14 @@ export function Composer({
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl bg-background px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] compact:pt-1 compact:pb-1">
+    <div
+      className={cn(
+        'mx-auto w-full max-w-3xl px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] compact:pt-1 compact:pb-1',
+        glass ? 'bg-transparent' : 'bg-background',
+      )}
+    >
       {hint && <p className="mb-1.5 px-2 text-xs text-muted-foreground">{hint}</p>}
-      <div className={cn('relative rounded-xl border bg-card shadow-xs transition-colors', tone.focus)}>
+      <div className={cn('relative rounded-xl border shadow-xs transition-colors', glass ? 'bg-card/70 backdrop-blur-md' : 'bg-card', tone.focus)}>
         {files.items.length > 0 && (
           <div className="border-b px-1.5">
             <AttachmentTray items={files.items} onRemove={files.remove} onEdit={files.update} />

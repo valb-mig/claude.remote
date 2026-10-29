@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Wallpaper } from '@/components/wallpaper/wallpaper'
 import { useMediaQuery } from '@/lib/hooks'
 import { MachineContext, machineOf } from '@/lib/machines'
 import { focusChat, PaneContext, useSplit } from '@/lib/split'
@@ -35,13 +36,15 @@ export function ChatSplit() {
   // Em pé, digitando numa conversa: a outra encolhe até o cabeçalho, para o teclado não espremer as duas.
   const [typing, setTyping] = useState<string | null>(null)
   return (
-    <div className="flex min-h-0 flex-1 flex-col divide-y landscape:flex-row landscape:divide-x landscape:divide-y-0">
+    <div className="relative flex min-h-0 flex-1 flex-col divide-y landscape:flex-row landscape:divide-x landscape:divide-y-0">
+      {/* Uma cena só atrás de todas as conversas: lado a lado, o fundo atravessa a divisória em vez de recomeçar. */}
+      <Wallpaper />
       {shown.map((id) => {
         const collapsed = split && stacked && typing !== null && typing !== id
         return (
           <PaneContext key={id} value={{ split, focused: id === focused, collapsed }}>
             <div
-              className={cn('flex min-h-0 min-w-0 flex-col', collapsed ? 'flex-none' : 'flex-1')}
+              className={cn('relative flex min-h-0 min-w-0 flex-col', collapsed ? 'flex-none' : 'flex-1')}
               onPointerDownCapture={() => focusChat(id)}
               onFocus={(e) => {
                 if (!isTextField(e.target)) return
