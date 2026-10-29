@@ -1,36 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'wouter'
+import { Pending } from '@/components/home/now'
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { projectName } from '@/lib/format'
 import { useWidth } from '@/lib/hooks'
 import { HOME } from '@/lib/machines'
-import type { OfficeRoom } from '@/lib/types'
-import {
-  AREA_W,
-  CORRIDOR_W,
-  FLOOR_BACK,
-  FLOOR_H,
-  areaBack,
-  areaFront,
-  buildingWidth,
-  corridor,
-  facade,
-  freeArea,
-  layoutFor,
-  partition,
-  scenery,
-  signBox,
-  skyAt,
-  storey,
-  type Layout,
-} from './scene'
-import { BODY_ROWS, LEG_ROWS, bubble, claudinho } from './sprites'
-import { World, type Actor } from './world'
+import { useStore } from '@/lib/store'
+import type { CatalogEntry, OfficeRoom } from '@/lib/types'
+import { Backdrop, Labels, drawWorld, headTop, stateOf, type Frame, type Placed } from './render'
+import { AREA_W, FLOOR_H, buildingWidth, deliveryX, layoutFor, type Layout } from './scene'
+import { skyAt, type Sky } from './sky'
+import { Street } from './street'
+import { World } from './world'
 
 /** Cada conversa fica na área em que apareceu; a de quem fechou vira vaga para a próxima. */
 class Slots {
   private readonly bySession = new Map<string, number>()
 
-  assign(rooms: OfficeRoom[]): { room: OfficeRoom; key: string; slot: number }[] {
+  assign(rooms: OfficeRoom[]): Placed[] {
     const keys = new Set(rooms.map(keyOf))
     for (const k of [...this.bySession.keys()]) if (!keys.has(k)) this.bySession.delete(k)
     const used = new Set(this.bySession.values())
@@ -54,8 +41,10 @@ const keyOf = (r: OfficeRoom) => `${r.machine ?? HOME}|${r.sessionId}`
 // miúdos, e o prédio passa a ter uma área por andar; acima do máximo, o prédio vira outdoor.
 const MIN_CSS = 1.2
 const MAX_CSS = 3.5
-// Quadros por segundo: pixel art não precisa de mais, e a salinha fica de fundo por horas.
+// Quadros por segundo: pixel art não precisa de mais, e a salinha fica de fundo por horas. Sem ninguém
+// andando nem nada no ar, metade: luzes, nuvens e a rua vão bem assim.
 const FPS = 12
+const FPS_STILL = 6
 
 // Cidade de cada lado do prédio: no mínimo um respiro, no máximo o que cabe sem virar paisagem.
 const MIN_SIDE = 6
@@ -80,269 +69,221 @@ function fit(width: number, slots: number, dpr: number): { layout: Layout; scale
   return { layout: layoutFor(slots, 1, MIN_SIDE), scale: dpr }
 }
 
-const stateOf = (room: OfficeRoom) => {
-  const lead = room.workers[0]?.activity
-  if (room.state === 'waiting' || lead === 'ask') return { color: '#f5a623', label: 'Pede você' }
-  if (room.state === 'running') return { color: '#63c7ff', label: 'Trabalhando' }
-  if (lead === 'background') return { color: '#63c7ff', label: 'Em segundo plano' }
-  return { color: '#3ddc84', label: 'Descansando' }
-}
-
-/** Topo da cabeça (pixels do mundo, na área): de pé, sentado na cadeira (mais alto) ou no sofá. */
-function headTop(a: Actor): number {
-  const seat = a.path.length ? undefined : a.spot.seated
-  return a.y - (seat === 'chair' ? 4 + BODY_ROWS : seat === 'sofa' ? BODY_ROWS : BODY_ROWS + LEG_ROWS)
-}
-
-function clip(ctx: CanvasRenderingContext2D, text: string, maxW: number): string {
-  let t = text
-  while (t.length > 1 && ctx.measureText(t).width > maxW) t = `${t.slice(0, -2)}…`
-  return t
-}
-
-/** Etiqueta escura arredondada; com `sub`, uma segunda linha menor (a placa da área). `y` é o topo. */
-function pill(
-  ctx: CanvasRenderingContext2D,
-  font: string,
-  x: number,
-  y: number,
-  o: { text: string; size: number; maxW: number; dot?: string; sub?: string; dim?: boolean },
-): void {
-  const pad = o.size * 0.55
-  const dotW = o.dot ? o.size * 0.9 : 0
-  ctx.font = `600 ${o.size}px ${font}`
-  const title = clip(ctx, o.text, o.maxW - pad * 2 - dotW)
-  let w = ctx.measureText(title).width + dotW
-  let sub = ''
-  if (o.sub) {
-    ctx.font = `500 ${o.size * 0.86}px ${font}`
-    sub = clip(ctx, o.sub, o.maxW - pad * 2)
-    w = Math.max(w, ctx.measureText(sub).width)
-  }
-  w += pad * 2
-  const h = o.size * (o.sub ? 2.75 : 1.55)
-  ctx.fillStyle = o.dim ? 'rgba(16,18,28,0.55)' : 'rgba(16,18,28,0.86)'
-  ctx.beginPath()
-  ctx.roundRect(x, y, w, h, o.size * 0.6)
-  ctx.fill()
-  const line1 = y + o.size * 0.82
-  if (o.dot) {
-    ctx.fillStyle = o.dot
-    ctx.beginPath()
-    ctx.arc(x + pad + o.size * 0.3, line1, o.size * 0.28, 0, Math.PI * 2)
-    ctx.fill()
-  }
-  ctx.textBaseline = 'middle'
-  ctx.font = `600 ${o.size}px ${font}`
-  ctx.fillStyle = o.dim ? 'rgba(242,244,247,0.6)' : '#f2f4f7'
-  ctx.fillText(title, x + pad + dotW, line1)
-  if (sub) {
-    ctx.font = `500 ${o.size * 0.86}px ${font}`
-    ctx.fillStyle = 'rgba(190,198,214,0.95)'
-    ctx.fillText(sub, x + pad, y + o.size * 1.98)
-  }
-}
+const reducedMotion = () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
 /**
  * O escritório em pixel art: um prédio numa cidade, cada andar com áreas (uma por conversa aberta)
  * dos lados do corredor. Os claudinhos saem do elevador e vão até a estação do que estão fazendo.
- * Tocar numa área abre a conversa.
+ * Tocar num claudinho mostra o que ele faz (e ele pula); tocar na área abre a conversa, ou os
+ * pedidos dela, se estiver pedindo você.
  */
-export function PixelOffice({ rooms }: { rooms: OfficeRoom[] }) {
+export function PixelOffice({ rooms, clock }: { rooms: OfficeRoom[]; clock?: { hour?: number; rain?: boolean } }) {
   const box = useRef<HTMLDivElement>(null)
-  const canvas = useRef<HTMLCanvasElement>(null)
+  const pix = useRef<HTMLCanvasElement>(null)
   const width = useWidth(box)
   const [, navigate] = useLocation()
-  const [world] = useState(() => new World())
+  const [street] = useState(() => new Street())
+  const [world] = useState(() => {
+    const w = new World()
+    w.calm = reducedMotion()
+    w.onPush = () => street.deliver()
+    return w
+  })
   const [slots] = useState(() => new Slots())
   const placed = useMemo(() => slots.assign(rooms), [slots, rooms])
   const total = Math.max(1, ...placed.map((p) => p.slot + 1))
   const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1
   const { layout, scale } = useMemo(() => fit(width, total, dpr), [width, total, dpr])
+  const fiveHour = useStore((s) => s.usages[HOME]?.plan?.fiveHour)
+  const catalog = useStore((s) => s.catalog)
+  const [askingId, setAskingId] = useState<string | null>(null)
+  const asking = askingId ? placed.find((p) => p.room.sessionId === askingId)?.room : undefined
+  // Respondido (aqui ou em outro lugar): a folha dos pedidos fecha sozinha.
+  if (askingId && !(asking && stateOf(asking).asking)) setAskingId(null)
+
+  // O laço de desenho lê sempre o mais recente daqui, sem recomeçar a cada resposta do servidor.
+  const live = useRef({ placed, fiveHour, selected: undefined as { key: string; until: number } | undefined })
+  useEffect(() => {
+    live.current.placed = placed
+    live.current.fiveHour = fiveHour
+  }, [placed, fiveHour])
 
   useEffect(() => {
     world.sync(
       placed.map((p) => {
         const side = layout.area(p.slot).side
-        return { key: p.key, workers: p.room.workers, entryX: layout.entryX(side), askX: layout.askX(side) }
+        return {
+          key: p.key,
+          workers: p.room.workers,
+          events: p.room.events ?? [],
+          todos: p.room.todos,
+          model: p.room.model,
+          state: p.room.state,
+          entryX: layout.entryX(side),
+          askX: layout.askX(side),
+          coolerX: layout.coolerX(side),
+        }
       }),
     )
   }, [world, placed, layout])
 
+  // Quem passa a pedir você: a salinha rola até a área dele, se estiver fora da tela.
+  const askingKeys = useRef(new Set<string>())
   useEffect(() => {
-    const el = canvas.current
+    const now = new Set(placed.filter((p) => stateOf(p.room).asking).map((p) => p.key))
+    const fresh = placed.find((p) => now.has(p.key) && !askingKeys.current.has(p.key))
+    askingKeys.current = now
+    const el = pix.current
+    const scroller = el?.closest('main')
+    if (!fresh || !el || !scroller) return
+    const r = el.getBoundingClientRect()
+    const k = r.height / layout.height
+    const area = layout.area(fresh.slot)
+    const top = r.top + area.y * k
+    const bottom = top + FLOOR_H * k
+    const view = scroller.getBoundingClientRect()
+    if (top >= view.top && bottom <= view.bottom) return
+    scroller.scrollBy({ top: (top + bottom) / 2 - (view.top + view.bottom) / 2, behavior: 'smooth' })
+  }, [placed, layout])
+
+  useEffect(() => {
+    const el = pix.current
     if (!el || !width) return
+    // O mundo é desenhado pequeno e ampliado sem suavizar; os textos vão por cima, na resolução da tela.
+    // Uma camada só: duas sobrepostas custam mais para o navegador compor a cada quadro.
     const low = document.createElement('canvas')
     low.width = layout.width
     low.height = layout.height
-    const lc = low.getContext('2d')!
+    const lctx = low.getContext('2d')!
     el.width = Math.round(layout.width * scale)
     el.height = Math.round(layout.height * scale)
     el.style.width = `${el.width / dpr}px`
     el.style.height = `${el.height / dpr}px`
     const ctx = el.getContext('2d')!
-    const bySlot = new Map(placed.map((p) => [p.slot, p]))
-    const areaOf = new Map(placed.map((p) => [p.key, layout.area(p.slot)]))
-    const slotsShown = layout.floors * layout.perFloor
-    const font = getComputedStyle(document.body).fontFamily
-    let frame = 0
+    const back = new Backdrop(layout)
+    const labels = new Labels(getComputedStyle(document.body).fontFamily)
+    // Hora pedida na URL (`?hora=21`): o relógio anda a partir dela.
+    const offset = clock?.hour === undefined ? 0 : (clock.hour - new Date().getHours()) * 3_600_000
+    const skyNow = () => skyAt(new Date(Date.now() + offset), clock?.rain)
+    let sky: Sky = skyNow()
+    let skyAtMs = Date.now()
     let last = performance.now()
-    let timer: ReturnType<typeof setTimeout>
+    let drawn = 0
+    let raf = 0
 
-    const tick = () => {
-      timer = setTimeout(tick, 1000 / FPS)
-      // Aba escondida: nada se mexe na tela, nada é desenhado.
-      if (document.hidden) {
-        last = performance.now()
-        return
-      }
-      const now = performance.now()
-      world.step(Math.min((now - last) / 1000, 0.5))
+    const loop = (now: number) => {
+      raf = requestAnimationFrame(loop)
+      const still = !world.busy
+      if (now - drawn < 1000 / (still ? FPS_STILL : FPS) - 4) return
+      drawn = now
+      const dt = Math.min((now - last) / 1000, 0.5)
       last = now
-      frame++
-      const sky = skyAt(new Date().getHours())
+      if (Date.now() - skyAtMs > 10_000) {
+        sky = skyNow()
+        skyAtMs = Date.now()
+      }
+      world.step(dt)
+      if (!world.calm) street.step(dt, layout.width, sky, deliveryX(layout))
 
-      lc.clearRect(0, 0, low.width, low.height)
-      scenery(lc, layout, sky, frame)
-      facade(lc, layout, sky, frame)
-      // Elevador aberto no andar onde alguém está chegando ou indo embora.
-      const elevatorX = layout.corridorX + CORRIDOR_W / 2
-      const busy = new Set<number>()
-      for (const a of world.actors.values()) {
-        const area = areaOf.get(a.room)
-        if (area && a.path.length && Math.abs(area.x + a.x - elevatorX) < 14 && a.y < 99) busy.add(area.floor)
+      const { placed, fiveHour, selected } = live.current
+      const used = fiveHour?.utilization ?? 0
+      const reset = fiveHour?.resetsAt ? new Date(fiveHour.resetsAt) : undefined
+      const frame: Frame = {
+        layout,
+        placed,
+        world,
+        street,
+        sky,
+        t: world.time,
+        tick: Math.floor(world.time * 12),
+        closed: used >= 100,
+        reopen: reset && !Number.isNaN(reset.getTime()) ? reset.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : undefined,
+        warn: used >= 90,
+        selected: selected && selected.until > world.time ? selected.key : undefined,
       }
-      for (let floor = 0; floor < layout.floors; floor++) {
-        storey(lc, layout, floor, sky)
-        corridor(lc, layout, floor, busy.has(floor))
-      }
-      const occ = new Map(placed.map((p) => [p.key, world.occupancy(p.key)]))
-      for (let s = 0; s < slotsShown; s++) {
-        const area = layout.area(s)
-        const p = bySlot.get(s)
-        if (p) areaBack(lc, area.x, area.y, occ.get(p.key)!, sky, frame)
-        else freeArea(lc, area.x, area.y, sky)
-        partition(lc, area.side === 'left' ? area.x + AREA_W - 2 : area.x - 2, area.y)
-      }
-
-      // De trás para a frente: quem está mais perto cobre quem está atrás (e o encosto cobre quem senta).
-      const draws: { y: number; draw: () => void }[] = []
-      for (const p of placed) {
-        const area = layout.area(p.slot)
-        draws.push({ y: area.y + 95.5, draw: () => areaFront(lc, area.x, area.y, occ.get(p.key)!) })
-      }
-      for (const a of world.actors.values()) {
-        const o = areaOf.get(a.room)
-        if (!o) continue
-        const walking = a.path.length > 0
-        const seat = walking ? undefined : a.spot.seated
-        const gait = Math.floor(a.stride * 8) % 2
-        draws.push({
-          y: o.y + a.y,
-          draw: () =>
-            claudinho(lc, o.x + a.x, o.y + a.y - (seat === 'chair' ? 4 : 0), a.tint, {
-              facing: a.facing,
-              step: walking ? (gait ? 1 : -1) : 0,
-              bob: walking ? -gait : 0,
-              seated: Boolean(seat),
-              lead: a.lead,
-              arms: !walking && Boolean(a.spot.arms) && (a.activity === 'plan' || frame % 2 === 0),
-            }),
-        })
-      }
-      draws.sort((a, b) => a.y - b.y).forEach((d) => d.draw())
-      for (const a of world.actors.values()) {
-        const o = areaOf.get(a.room)
-        if (!o || a.path.length || a.leaving) continue
-        // Balão ao lado da cabeça; o nome fica em cima dela.
-        const head = o.y + headTop(a) + 2
-        if (a.activity === 'think') bubble(lc, o.x + a.x + 13, head, 'dots', frame >> 2)
-        if (a.activity === 'ask') bubble(lc, o.x + a.x + 13, head, 'alert', frame)
-        if (a.activity === 'idle' && frame % 40 < 26) bubble(lc, o.x + a.x + 13, head, 'sleep', frame)
-      }
-
+      lctx.clearRect(0, 0, low.width, low.height)
+      drawWorld(lctx, back, frame)
       ctx.imageSmoothingEnabled = false
-      ctx.clearRect(0, 0, el.width, el.height)
       ctx.drawImage(low, 0, 0, el.width, el.height)
-
-      // Textos na resolução da tela: letreiro, andares, placa de cada área e o nome de cada um.
-      const k = scale
-      const sign = signBox(layout)
-      ctx.font = `700 ${Math.min(sign.h * 0.62 * k, 15 * dpr)}px ${font}`
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'middle'
-      ctx.fillStyle = sky.night || sky.dusk ? '#ffd36b' : '#f2f4f7'
-      ctx.fillText('CLAUDE REMOTE', (sign.x + sign.w / 2) * k, (sign.y + sign.h / 2 + 0.5) * k)
-      ctx.font = `700 ${7 * dpr}px ${font}`
-      ctx.fillStyle = '#3ddc84'
-      for (let floor = 0; floor < layout.floors; floor++) {
-        ctx.fillText(`${floor + 1}`, elevatorX * k, (layout.floorTop(floor) + FLOOR_BACK - 50.5) * k)
-      }
-      ctx.textAlign = 'left'
-      for (let s = 0; s < slotsShown; s++) {
-        const area = layout.area(s)
-        const p = bySlot.get(s)
-        if (!p) {
-          pill(ctx, font, (area.x + 30) * k, (area.y + 10) * k, { text: 'Área livre', size: 10 * dpr, maxW: AREA_W * 0.5 * k, dim: true })
-          continue
-        }
-        const lead = p.room.workers[0]
-        const crew = p.room.workers.length - 1
-        const sub = [lead?.detail, projectName(p.room.cwd), crew > 0 && `${crew} ${crew === 1 ? 'funcionário' : 'funcionários'}`]
-          .filter(Boolean)
-          .join(' · ')
-        pill(ctx, font, (area.x + 30) * k, (area.y + 9) * k, {
-          text: p.room.title,
-          sub,
-          size: 10.5 * dpr,
-          maxW: (AREA_W - 40) * k,
-          dot: stateOf(p.room).color,
-        })
-      }
-      // Nomes: quem está junto de outro tem a etiqueta empurrada para cima, para não se cobrirem.
-      const tag = 9 * dpr
-      const tagH = tag * 1.55
-      const taken: { x: number; y: number; w: number }[] = []
-      const actors = [...world.actors.values()].sort((a, b) => a.x - b.x)
-      for (const a of actors) {
-        const o = areaOf.get(a.room)
-        if (!o) continue
-        ctx.font = `600 ${tag}px ${font}`
-        const w = Math.min(ctx.measureText(a.name).width + tag * 1.1, 70 * k)
-        const x = (o.x + a.x) * k - w / 2
-        let y = (o.y + headTop(a) - 2) * k - tagH
-        while (taken.some((t) => x < t.x + t.w + 2 && t.x < x + w + 2 && Math.abs(t.y - y) < tagH + 1)) y -= tagH + 2
-        taken.push({ x, y, w })
-        pill(ctx, font, x, y, { text: a.name, size: tag, maxW: 70 * k })
-      }
+      labels.draw(ctx, frame, scale, dpr)
     }
-    tick()
-    return () => clearTimeout(timer)
-  }, [world, placed, layout, scale, dpr, width])
+    raf = requestAnimationFrame(loop)
+    return () => cancelAnimationFrame(raf)
+  }, [world, street, layout, scale, dpr, width, clock?.hour, clock?.rain])
 
-  const roomAt = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  /** O claudinho ou a área sob o dedo, em pixels do mundo. */
+  const hit = (e: React.MouseEvent<HTMLElement>) => {
     const r = e.currentTarget.getBoundingClientRect()
     const wx = ((e.clientX - r.left) / r.width) * layout.width
     const wy = ((e.clientY - r.top) / r.height) * layout.height
-    return placed.find((p) => {
+    const areaOf = new Map(placed.map((p) => [p.key, layout.area(p.slot)]))
+    let actor: string | undefined
+    let front = -Infinity
+    for (const a of world.actors.values()) {
+      const o = areaOf.get(a.room)
+      if (!o || a.leaving) continue
+      const x = o.x + a.x
+      const y = o.y + a.y
+      if (Math.abs(wx - x) <= 10 && wy >= o.y + headTop(world, a) - 3 && wy <= y + 2 && y > front) {
+        actor = a.key
+        front = y
+      }
+    }
+    const room = placed.find((p) => {
       const a = layout.area(p.slot)
       return wx >= a.x && wx < a.x + AREA_W && wy >= a.y && wy < a.y + FLOOR_H
     })
+    return { actor, room }
   }
+
+  const entryOf = (room: OfficeRoom): CatalogEntry =>
+    catalog.find((c) => c.sessionId === room.sessionId) ?? {
+      sessionId: room.sessionId,
+      title: room.title,
+      cwd: room.cwd,
+      state: room.state,
+      owner: room.owner,
+      lastModified: 0,
+      machine: room.machine,
+    }
 
   return (
     <div ref={box} className="flex w-full justify-center">
       <canvas
-        ref={canvas}
-        role="img"
-        aria-label={`Escritório com ${rooms.length} ${rooms.length === 1 ? 'área' : 'áreas'}: ${rooms.map((r) => `${r.title} (${stateOf(r).label})`).join(', ')}`}
-        className="block [image-rendering:pixelated]"
-        onClick={(e) => {
-          const p = roomAt(e)
-          if (p && !p.room.sessionId.startsWith('demo-')) navigate(`/s/${p.room.sessionId}`)
-        }}
-        onMouseMove={(e) => (e.currentTarget.style.cursor = roomAt(e) ? 'pointer' : 'default')}
-      />
+          ref={pix}
+          role="img"
+          aria-label={`Escritório com ${rooms.length} ${rooms.length === 1 ? 'área' : 'áreas'}: ${rooms.map((r) => `${r.title} (${stateOf(r).label})`).join(', ')}`}
+          className="block [image-rendering:pixelated]"
+          onClick={(e) => {
+            const { actor, room } = hit(e)
+            if (actor) {
+              world.poke(actor)
+              live.current.selected = { key: actor, until: world.time + 5 }
+              return
+            }
+            if (!room || room.room.sessionId.startsWith('demo-')) return
+            // Pedindo você numa conversa do painel: os pedidos abrem aqui mesmo, para responder sem sair.
+            if (stateOf(room.room).asking && room.room.owner === 'panel') setAskingId(room.room.sessionId)
+            else navigate(`/s/${room.room.sessionId}`)
+          }}
+          onMouseMove={(e) => {
+            const { actor, room } = hit(e)
+            e.currentTarget.style.cursor = actor || room ? 'pointer' : 'default'
+          }}
+        />
+      <Sheet open={Boolean(asking)} onOpenChange={(o) => !o && setAskingId(null)}>
+        <SheetContent side="bottom" className="max-h-[85dvh] gap-0 overflow-y-auto pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <SheetHeader>
+            <SheetTitle>Pedindo você</SheetTitle>
+            <SheetDescription>{asking ? `${asking.title} · ${projectName(asking.cwd)}` : ''}</SheetDescription>
+          </SheetHeader>
+          {asking && (
+            <div className="px-4">
+              <Pending s={entryOf(asking)} />
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }

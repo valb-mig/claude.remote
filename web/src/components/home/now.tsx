@@ -14,7 +14,7 @@ import { HomeCard } from './card'
 type Request = Extract<Item, { type: 'approval' | 'question' }>
 
 /** Os pedidos abertos de uma conversa do painel, com os mesmos cartões do chat para responder aqui. */
-function Pending({ s }: { s: CatalogEntry }) {
+export function Pending({ s }: { s: CatalogEntry }) {
   // A home não fica ao mesmo tempo que o chat da conversa: pode acompanhar os eventos dela.
   useEffect(() => {
     subscribe(s.sessionId)

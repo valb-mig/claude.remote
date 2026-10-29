@@ -1,5 +1,6 @@
 import { createReadStream, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
+import { join } from 'node:path';
 import fastifyStatic from '@fastify/static';
 import websocket from '@fastify/websocket';
 import Fastify, { LogController } from 'fastify';
@@ -12,6 +13,7 @@ import { HOST, MACHINE_NAME, PORT, UPLOADS_DIR, WEB_DIST } from './config.ts';
 import { HttpError } from './errors.ts';
 import { listDir, rawProjectFile, readProjectFile } from './explorer.ts';
 import { gitDiff, gitStatus, gitSummaries } from './git.ts';
+import { wakatime, wakatimeToday } from './wakatime.ts';
 import type { LoggedEvent } from './events.ts';
 import { accessGuard, loadAccessPolicy, refreshTailnet } from './guard.ts';
 import { LiveRegistry } from './live.ts';
@@ -292,12 +294,19 @@ app.get<ProjectQuery>('/api/tree', projectQuery, async (req) =>
   listDir(await manager.knownCwd(req.query.cwd), req.query.path ?? ''),
 );
 
+// Ler um arquivo ou um diff pelo painel é tempo seu no projeto: conta no WakaTime (ver wakatime.ts).
+const reviewing = async (cwd: string, path?: string) => {
+  const dir = await manager.knownCwd(cwd);
+  void wakatime({ cwd: dir, file: path ? join(dir, path) : undefined, category: 'code reviewing' });
+  return dir;
+};
+
 app.get<ProjectQuery>('/api/file', projectQuery, async (req) =>
-  readProjectFile(await manager.knownCwd(req.query.cwd), req.query.path ?? ''),
+  readProjectFile(await reviewing(req.query.cwd, req.query.path), req.query.path ?? ''),
 );
 
 app.get<ProjectQuery>('/api/file/raw', projectQuery, async (req, reply) => {
-  const file = await rawProjectFile(await manager.knownCwd(req.query.cwd), req.query.path ?? '');
+  const file = await rawProjectFile(await reviewing(req.query.cwd, req.query.path), req.query.path ?? '');
   return reply
     .header('content-type', file.mediaType)
     .header('cache-control', 'private, no-cache')
@@ -308,8 +317,33 @@ app.get<ProjectQuery>('/api/file/raw', projectQuery, async (req, reply) => {
 app.get<ProjectQuery>('/api/git', projectQuery, async (req) => gitStatus(await manager.knownCwd(req.query.cwd)));
 
 app.get<ProjectQuery>('/api/git/diff', projectQuery, async (req) => ({
-  diff: await gitDiff(await manager.knownCwd(req.query.cwd), req.query.path ?? ''),
+  diff: await gitDiff(await reviewing(req.query.cwd, req.query.path), req.query.path ?? ''),
 }));
+
+// Quanto você já codou hoje, para o anel na alça do PC; `null` sem o wakatime-cli instalado.
+app.get('/api/wakatime', async () => ({ today: await wakatimeToday().catch(() => null) }));
+
+/**
+ * "Ainda estou aqui": o app avisa enquanto você mexe nele, e o tempo entra no WakaTime como seu,
+ * não do Claude. Sem `cwd` (na lista de conversas, por exemplo) não há projeto, e nada é enviado.
+ */
+app.post<{ Body: { cwd?: string; path?: string; category?: 'code reviewing' | 'planning' } }>(
+  '/api/wakatime',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        properties: { cwd: { type: 'string' }, path: { type: 'string' }, category: { type: 'string', enum: ['code reviewing', 'planning'] } },
+      },
+    },
+  },
+  async (req) => {
+    if (!req.body.cwd) return { ok: true };
+    const dir = await manager.knownCwd(req.body.cwd);
+    await wakatime({ cwd: dir, file: req.body.path ? join(dir, req.body.path) : undefined, category: req.body.category ?? 'planning' });
+    return { ok: true };
+  },
+);
 
 app.get<{ Querystring: { cwd: string } }>(
   '/api/commands',

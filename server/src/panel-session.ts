@@ -16,7 +16,7 @@ import {
 import { AgentTasks } from './agents.ts';
 import { imageStore } from './images.ts';
 import { BackgroundTasks } from './tasks.ts';
-import { AGENT_TOOLS, workersFrom, type OfficeWorker, type OpenTool } from './office.ts';
+import { AGENT_TOOLS, OfficeLog, workersFrom, type OfficeSnapshot, type OpenTool } from './office.ts';
 import { UPLOADS_DIR, childEnv } from './config.ts';
 import { readPlanUsage } from './claude-usage.ts';
 import type { PlanUsage } from './system.ts';
@@ -125,6 +125,9 @@ export class PanelSession extends EventEmitter {
   private readonly openTools = new Map<string, OpenTool>();
   /** Nome e tipo de cada subagente, pela chamada da ferramenta Agent que o criou. */
   private readonly agentCalls = new Map<string, { name: string; type: string }>();
+  /** Última ferramenta de cada um, eventos recentes e tarefas, para a salinha. */
+  private readonly officeLog = new OfficeLog();
+  private compacting = false;
 
   constructor(opts: PanelSessionOptions) {
     super();
@@ -426,6 +429,9 @@ export class PanelSession extends EventEmitter {
       else this.setState('waiting', this.waitingFor ?? 'input needed');
     }
     if (msg.type === 'result' && this.pending.size === 0) this.setState('idle');
+    // Compactação: começa com o status "compacting" e acaba com a marca de fronteira (ou o fim do turno).
+    if (msg.type === 'system' && msg.subtype === 'status') this.compacting = msg.status === 'compacting';
+    if ((msg.type === 'system' && msg.subtype === 'compact_boundary') || msg.type === 'result') this.compacting = false;
 
     // Resultados de ferramentas podem trazer imagens (prints, arquivos lidos): vão para o cache.
     const sink = msg.type === 'user' ? imageStore.sink(this.id, (msg as { uuid?: string }).uuid ?? randomUUID()) : undefined;
@@ -446,11 +452,12 @@ export class PanelSession extends EventEmitter {
     if (this.agents.active !== working || this.background.list !== waiting) this.emit('state');
   }
 
-  /** Quem está no setor desta conversa na salinha e o que cada um faz (ver office.ts). */
-  office(): OfficeWorker[] {
+  /** Quem está no setor desta conversa na salinha, o que cada um faz e o que acabou de acontecer (ver office.ts). */
+  office(): OfficeSnapshot {
     const agents = this.agents.runningCalls().map((id) => ({ id, ...(this.agentCalls.get(id) ?? { name: 'Subagente', type: 'subagente' }) }));
     const working = new Set(agents.map((a) => a.id));
-    return workersFrom({
+    const now = Date.now();
+    const workers = workersFrom({
       tools: [...this.openTools.values()].filter((t) => t.scope === null || working.has(t.scope)),
       agents,
       busy: this.state === 'running' || this.state === 'starting',
@@ -458,16 +465,23 @@ export class PanelSession extends EventEmitter {
       waitingFor: this.waitingFor,
       asking: new Set([...this.pending.values()].flatMap((p) => (p.toolUseId ? [p.toolUseId] : []))),
       background: this.background.list.length > 0,
+      compacting: this.compacting,
+      recent: (scope) => this.officeLog.recent(scope, now),
     });
+    return { workers, events: this.officeLog.recentEvents(now), todos: this.officeLog.todos, model: this.settings.model };
   }
 
   private track(ev: PanelEvent): void {
     if (ev.kind === 'tool_result') {
+      const tool = this.openTools.get(ev.toolUseId);
+      if (tool) this.officeLog.result(tool, ev.isError, ev.text);
       this.openTools.delete(ev.toolUseId);
       return;
     }
     if (ev.kind !== 'tool_use') return;
-    this.openTools.set(ev.id, { id: ev.id, name: ev.name, input: ev.input, scope: ev.parentToolUseId ?? null });
+    const tool: OpenTool = { id: ev.id, name: ev.name, input: ev.input, scope: ev.parentToolUseId ?? null };
+    this.openTools.set(ev.id, tool);
+    this.officeLog.use(tool);
     if (AGENT_TOOLS.has(ev.name)) {
       const input = (ev.input ?? {}) as Record<string, unknown>;
       const type = typeof input.subagent_type === 'string' && input.subagent_type ? input.subagent_type : 'general-purpose';

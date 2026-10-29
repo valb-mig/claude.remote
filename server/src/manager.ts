@@ -24,17 +24,15 @@ import { searchProjectFiles } from './project-files.ts';
 import type { PlanUsage } from './system.ts';
 import { imageStore, type StoredImage } from './images.ts';
 import { transcriptCwd } from './transcript.ts';
-import { pcWorkers, type OfficeWorker } from './office.ts';
+import { pcOffice, type OfficeSnapshot } from './office.ts';
 import type { MetaStore } from './meta.ts';
 import type { ResumeEntry } from './updater.ts';
 
 export type CatalogState = 'running' | 'waiting' | 'idle' | 'stopped';
 
 /** Um setor da salinha: uma conversa aberta (no painel ou no PC) e quem trabalha nela. */
-export type OfficeRoom = Pick<CatalogEntry, 'sessionId' | 'title' | 'cwd' | 'state' | 'waitingFor'> & {
-  owner: 'panel' | 'pc';
-  workers: OfficeWorker[];
-};
+export type OfficeRoom = Pick<CatalogEntry, 'sessionId' | 'title' | 'cwd' | 'state' | 'waitingFor'> &
+  OfficeSnapshot & { owner: 'panel' | 'pc' };
 
 export type CatalogEntry = {
   sessionId: string;
@@ -177,13 +175,14 @@ export class Manager extends EventEmitter {
     return Promise.all(
       open.map(async (e) => {
         const live = this.live.get(e.sessionId);
-        const workers =
+        const empty: OfficeSnapshot = { workers: [], events: [] };
+        const snap =
           e.owner === 'panel'
-            ? (this.sessions.get(e.sessionId)?.office() ?? [])
+            ? (this.sessions.get(e.sessionId)?.office() ?? empty)
             : live
-              ? await pcWorkers(e.sessionId, live).catch(() => [])
-              : [];
-        return { sessionId: e.sessionId, title: e.title, cwd: e.cwd, state: e.state, waitingFor: e.waitingFor, owner: e.owner, workers };
+              ? await pcOffice(e.sessionId, live).catch(() => empty)
+              : empty;
+        return { sessionId: e.sessionId, title: e.title, cwd: e.cwd, state: e.state, waitingFor: e.waitingFor, owner: e.owner, ...snap };
       }),
     );
   }
