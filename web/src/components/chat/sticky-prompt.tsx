@@ -1,6 +1,8 @@
 import { ArrowUp, ChevronDown, ChevronUp, ImageIcon } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
+import { useGlass } from '@/lib/wallpaper'
 import type { Item } from './items'
 
 // Folga para a mensagem contar como "já passou": a faixa cobre o comecinho da conversa.
@@ -62,6 +64,7 @@ function Bar({ item, scrollRef }: { item: Extract<Item, { type: 'user' }>; scrol
   const [open, setOpen] = useState(false)
   const [clamped, setClamped] = useState(false)
   const textRef = useRef<HTMLSpanElement>(null)
+  const glass = useGlass()
   const text = plain(item.text).trim()
   const images = item.images?.length ?? 0
 
@@ -82,7 +85,7 @@ function Bar({ item, scrollRef }: { item: Extract<Item, { type: 'user' }>; scrol
   }
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-0 z-10 border-b bg-background/90 backdrop-blur">
+    <div className={cn('pointer-events-none absolute inset-x-0 top-0 z-10 border-b backdrop-blur', glass ? 'bg-background/70' : 'bg-background/90')}>
       <div className="mx-auto flex w-full max-w-3xl flex-col items-end gap-1.5 px-4 py-1.5">
         {open ? (
           // Aberta: a mensagem inteira, rolando dentro da faixa até metade da tela (dá para selecionar o texto).

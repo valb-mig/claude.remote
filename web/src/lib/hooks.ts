@@ -17,6 +17,18 @@ export function useMediaQuery(query: string): boolean {
 /** Tela larga (PC, tablet deitado): a lista de conversas fica fixa ao lado. Mesmo limite do `lg:` do Tailwind. */
 export const useWide = () => useMediaQuery('(min-width: 64rem)')
 
+/** Se o app está no tema escuro agora: a classe que o next-themes põe no `<html>` é a fonte da verdade. */
+export function useDarkMode(): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      const observer = new MutationObserver(onChange)
+      observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+      return () => observer.disconnect()
+    },
+    () => document.documentElement.classList.contains('dark'),
+  )
+}
+
 /** Largura de um elemento, acompanhando a tela (girar o celular, abrir outra conversa ao lado). */
 export function useWidth(ref: React.RefObject<HTMLElement | null>): number {
   const [width, setWidth] = useState(0)
