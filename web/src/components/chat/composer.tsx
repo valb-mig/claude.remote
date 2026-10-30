@@ -1,4 +1,4 @@
-import { ArrowUp, GitBranch, Loader2, Mic, Slash, Square } from 'lucide-react'
+import { ArrowUp, Expand, GitBranch, Loader2, Mic, Shrink, Slash, Square } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { errorMessage } from '@/lib/api'
@@ -7,6 +7,7 @@ import { spliceSpoken, useDictation, useDictationSupport } from '@/lib/dictation
 import { cachedDraft, loadDraft, saveDraft } from '@/lib/drafts'
 import type { AttachmentPayload, ContextUsage, RunOptions, SessionSettings } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { useBackToClose } from '@/lib/back-close'
 import { useGlass } from '@/lib/wallpaper'
 import { AttachmentTray, useAttachments } from './attachment-tray'
 import { AddMenu, ContextRing, MODE_TONE, ModeMenu, ModelPill, findModel, footerButton, useModels } from './composer-controls'
@@ -116,6 +117,18 @@ export function Composer({
   }, [loaded, sessionId, text, files.items])
 
   const glass = useGlass()
+  /**
+   * Caixa grande: para prompts longos, ela sai do rodapé e vira uma folha centrada, com o resto da
+   * tela escurecido. É só troca de classe no mesmo elemento — remontar perderia o texto e o cursor.
+   */
+  const [big, setBig] = useState(false)
+  useBackToClose(big, () => setBig(false))
+  useEffect(() => {
+    if (!big) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setBig(false)
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [big])
   const empty = !text.trim() && files.items.length === 0
   const showStop = working && empty && Boolean(onInterrupt)
   const mode = settings.permissionMode ?? 'default'
@@ -125,6 +138,7 @@ export function Composer({
   async function submit() {
     if (empty || sending || files.reading) return
     stopDictation()
+    setBig(false)
     setSending(true)
     try {
       await onSend(text.trim(), toPayload(files.items))
@@ -152,127 +166,166 @@ export function Composer({
   }
 
   return (
-    <div
-      className={cn(
-        'mx-auto w-full max-w-3xl px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] compact:pt-1 compact:pb-1',
-        glass ? 'bg-transparent' : 'bg-background',
+    <>
+      {big && (
+        // Escurece o resto para o texto ficar sozinho na frente; tocar fora fecha.
+        <div className="fixed inset-0 z-40 bg-black/65 backdrop-blur-sm" onClick={() => setBig(false)} aria-hidden />
       )}
-    >
-      {hint && <p className="mb-1.5 px-2 text-xs text-muted-foreground">{hint}</p>}
-      <div className={cn('relative rounded-xl border shadow-xs transition-colors', glass ? 'bg-card/70 backdrop-blur-md' : 'bg-card', tone.focus)}>
-        {files.items.length > 0 && (
-          <div className="border-b px-1.5">
-            <AttachmentTray items={files.items} onRemove={files.remove} onEdit={files.update} />
-          </div>
+      <div
+        className={cn(
+          'mx-auto w-full max-w-3xl px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] compact:pt-1 compact:pb-1',
+          big
+            ? 'fixed inset-0 z-50 flex max-w-none flex-col justify-center px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]'
+            : glass
+              ? 'bg-transparent'
+              : 'bg-background',
         )}
-        <PromptInput
-          handleRef={input}
-          cwd={cwd}
-          value={text}
-          onChange={(value) => {
-            stopDictation()
-            setText(value)
-          }}
-          onPasteFiles={files.add}
-          onSubmitShortcut={submit}
-          anchored={false}
-          rows={1}
-          placeholder={
-            dictation.listening
-              ? dictation.live
-                ? 'Pode falar…'
-                : 'Gravando… toque no microfone para transcrever'
-              : working
-                ? 'Enfileirar outra mensagem…'
-                : 'Peça algo ao Claude…'
-          }
-          className="max-h-48 min-h-11 resize-none rounded-none border-0 bg-transparent px-3.5 py-2.5 text-base shadow-none focus-visible:border-0 focus-visible:ring-0 md:text-sm dark:bg-transparent"
-        />
-        <div className="flex items-center gap-0.5 px-1.5 pb-1.5">
-          {/* Durante o ditado, as ondas da voz ocupam a linha no lugar dos controles. */}
-          {dictation.listening ? (
-            <VoiceWave activity={text} speaking={dictation.speaking} className="mx-2 h-6 min-w-0 flex-1 text-red-500" />
-          ) : dictation.transcribing ? (
-            <div className="mx-2 flex h-6 min-w-0 flex-1 items-center gap-2 text-xs text-muted-foreground" role="status">
-              <Loader2 className="size-3.5 shrink-0 animate-spin" />
-              <span className="truncate">Transcrevendo no PC…</span>
+      >
+        {hint && !big && <p className="mb-1.5 px-2 text-xs text-muted-foreground">{hint}</p>}
+        <div
+          className={cn(
+            'relative rounded-xl border shadow-xs transition-colors',
+            big ? 'mx-auto w-full max-w-3xl bg-card shadow-2xl' : glass ? 'bg-card/70 backdrop-blur-md' : 'bg-card',
+            tone.focus,
+          )}
+        >
+          {files.items.length > 0 && (
+            <div className="border-b px-1.5">
+              <AttachmentTray items={files.items} onRemove={files.remove} onEdit={files.update} />
             </div>
-          ) : (
-            <>
-              <AddMenu onAttach={() => fileInput.current?.click()} onMention={cwd ? () => input.current?.insert('@') : undefined} />
+          )}
+          <PromptInput
+            handleRef={input}
+            cwd={cwd}
+            value={text}
+            onChange={(value) => {
+              stopDictation()
+              setText(value)
+            }}
+            onPasteFiles={files.add}
+            onSubmitShortcut={submit}
+            anchored={false}
+            rows={1}
+            placeholder={
+              dictation.listening
+                ? dictation.live
+                  ? 'Pode falar…'
+                  : 'Gravando… toque no microfone para transcrever'
+                : working
+                  ? 'Enfileirar outra mensagem…'
+                  : 'Peça algo ao Claude…'
+            }
+            className={cn(
+              'resize-none rounded-none border-0 bg-transparent px-3.5 py-2.5 text-base shadow-none focus-visible:border-0 focus-visible:ring-0 md:text-sm dark:bg-transparent',
+              big ? 'max-h-[60dvh] min-h-[45dvh]' : 'max-h-48 min-h-11',
+            )}
+          />
+          <div className="flex items-center gap-0.5 px-1.5 pb-1.5">
+            {/* Durante o ditado, as ondas da voz ocupam a linha no lugar dos controles. */}
+            {dictation.listening ? (
+              <VoiceWave activity={text} speaking={dictation.speaking} className="mx-2 h-6 min-w-0 flex-1 text-red-500" />
+            ) : dictation.transcribing ? (
+              <div className="mx-2 flex h-6 min-w-0 flex-1 items-center gap-2 text-xs text-muted-foreground" role="status">
+                <Loader2 className="size-3.5 shrink-0 animate-spin" />
+                <span className="truncate">Transcrevendo no PC…</span>
+              </div>
+            ) : (
+              <>
+                <AddMenu onAttach={() => fileInput.current?.click()} onMention={cwd ? () => input.current?.insert('@') : undefined} />
+                <button
+                  type="button"
+                  className={cn(footerButton, 'px-0')}
+                  onClick={() => {
+                    setBig(!big)
+                    // O foco volta para o texto: expandir é para escrever, não para olhar.
+                    requestAnimationFrame(() => input.current?.focus())
+                  }}
+                  aria-pressed={big}
+                  aria-label={big ? 'Voltar a caixa ao tamanho normal' : 'Caixa grande, para prompts longos'}
+                  title={big ? 'Diminuir a caixa' : 'Caixa grande'}
+                >
+                  {big ? <Shrink className="size-4" /> : <Expand className="size-4" />}
+                </button>
+                <button
+                  type="button"
+                  className={cn(footerButton, 'px-0')}
+                  aria-label="Comandos"
+                  onClick={() => (text.startsWith('/') ? input.current?.focus() : input.current?.insert('/', { atStart: true }))}
+                >
+                  <Slash className="size-4" />
+                </button>
+                {context && onCompact && <ContextRing context={context} disabled={working} onCompact={() => void guard(onCompact)} />}
+                <ModelPill models={models} settings={settings} onChange={(patch) => void guard(() => onChangeSettings(patch))} />
+                <div className="flex-1" />
+                <ModeMenu settings={settings} efforts={efforts} onChange={(patch) => void guard(() => onChangeSettings(patch))} />
+              </>
+            )}
+            {canDictate && (
               <button
                 type="button"
-                className={cn(footerButton, 'px-0')}
-                aria-label="Comandos"
-                onClick={() => (text.startsWith('/') ? input.current?.focus() : input.current?.insert('/', { atStart: true }))}
+                onClick={dictate}
+                disabled={dictation.transcribing}
+                className={cn(footerButton, 'px-0', dictation.listening && 'bg-red-500/15 text-red-500 hover:bg-red-500/15 hover:text-red-500')}
+                aria-label={dictation.transcribing ? 'Transcrevendo' : dictation.listening ? (dictation.live ? 'Parar ditado' : 'Parar e transcrever') : 'Ditar'}
+                aria-pressed={dictation.listening}
               >
-                <Slash className="size-4" />
+                {dictation.transcribing ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Mic className={cn('size-4', dictation.listening && 'animate-pulse')} />
+                )}
               </button>
-              {context && onCompact && <ContextRing context={context} disabled={working} onCompact={() => void guard(onCompact)} />}
-              <ModelPill models={models} settings={settings} onChange={(patch) => void guard(() => onChangeSettings(patch))} />
-              <div className="flex-1" />
-              <ModeMenu settings={settings} efforts={efforts} onChange={(patch) => void guard(() => onChangeSettings(patch))} />
-            </>
-          )}
-          {canDictate && (
-            <button
-              type="button"
-              onClick={dictate}
-              disabled={dictation.transcribing}
-              className={cn(footerButton, 'px-0', dictation.listening && 'bg-red-500/15 text-red-500 hover:bg-red-500/15 hover:text-red-500')}
-              aria-label={dictation.transcribing ? 'Transcrevendo' : dictation.listening ? (dictation.live ? 'Parar ditado' : 'Parar e transcrever') : 'Ditar'}
-              aria-pressed={dictation.listening}
-            >
-              {dictation.transcribing ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <Mic className={cn('size-4', dictation.listening && 'animate-pulse')} />
-              )}
-            </button>
-          )}
-          {showStop ? (
-            <button
-              type="button"
-              onClick={interrupt}
-              disabled={stopping}
-              className={cn('ml-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg disabled:opacity-40', tone.send)}
-              aria-label="Parar"
-            >
-              <Square className="size-3.5 fill-current" />
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={submit}
-              disabled={empty || sending || files.reading}
-              className={cn(
-                'ml-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg transition-[filter] hover:brightness-110 disabled:opacity-40',
-                tone.send,
-              )}
-              aria-label="Enviar"
-            >
-              <ArrowUp className="size-4.5" />
-            </button>
-          )}
+            )}
+            {showStop ? (
+              <button
+                type="button"
+                onClick={interrupt}
+                disabled={stopping}
+                className={cn('ml-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg disabled:opacity-40', tone.send)}
+                aria-label="Parar"
+              >
+                <Square className="size-3.5 fill-current" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={submit}
+                disabled={empty || sending || files.reading}
+                className={cn(
+                  'ml-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg transition-[filter] hover:brightness-110 disabled:opacity-40',
+                  tone.send,
+                )}
+                aria-label="Enviar"
+              >
+                <ArrowUp className="size-4.5" />
+              </button>
+            )}
+          </div>
+          <input
+            ref={fileInput}
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => {
+              if (e.target.files) void files.add(e.target.files)
+              e.target.value = ''
+            }}
+          />
         </div>
-        <input
-          ref={fileInput}
-          type="file"
-          multiple
-          hidden
-          onChange={(e) => {
-            if (e.target.files) void files.add(e.target.files)
-            e.target.value = ''
-          }}
-        />
+        {branch && (
+          // Deitado, a altura é curta: a branch continua no ⎇ do topo.
+          <p
+            className={cn(
+              'mt-1 flex items-center gap-1 px-2 font-mono text-[11px] text-muted-foreground compact:hidden',
+              // Na caixa grande ela centraliza; sem isto a branch ficava solta na borda da tela.
+              big && 'mx-auto w-full max-w-3xl',
+            )}
+          >
+            <GitBranch className="size-3 shrink-0" />
+            <span className="truncate">{branch}</span>
+          </p>
+        )}
       </div>
-      {branch && (
-        // Deitado, a altura é curta: a branch continua no ⎇ do topo.
-        <p className="mt-1 flex items-center gap-1 px-2 font-mono text-[11px] text-muted-foreground compact:hidden">
-          <GitBranch className="size-3 shrink-0" />
-          <span className="truncate">{branch}</span>
-        </p>
-      )}
-    </div>
+    </>
   )
 }
