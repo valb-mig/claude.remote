@@ -14,8 +14,13 @@ export function useMediaQuery(query: string): boolean {
   )
 }
 
-/** Tela larga (PC, tablet deitado): a lista de conversas fica fixa ao lado. Mesmo limite do `lg:` do Tailwind. */
-export const useWide = () => useMediaQuery('(min-width: 64rem)')
+/**
+ * Layout de PC (a alça e a lista de conversas ao lado): a partir de 1024 px, ou já de 768 px com mouse
+ * — uma janela de PC na metade da tela não é um celular. Tablet em pé, no toque, segue com as abas
+ * embaixo. A variante `wide:` do CSS (index.css) tem a mesma consulta; mudando uma, mude a outra.
+ */
+export const WIDE_QUERY = '(min-width: 64rem), (min-width: 48rem) and (pointer: fine)'
+export const useWide = () => useMediaQuery(WIDE_QUERY)
 
 /** Se o app está no tema escuro agora: a classe que o next-themes põe no `<html>` é a fonte da verdade. */
 export function useDarkMode(): boolean {

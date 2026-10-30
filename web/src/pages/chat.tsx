@@ -490,7 +490,7 @@ export function ChatPage({ id }: { id: string }) {
           )}
         >
           {/* No PC a lista de conversas já está ao lado. */}
-          <Button variant="ghost" size="icon" asChild aria-label="Voltar" className="lg:hidden">
+          <Button variant="ghost" size="icon" asChild aria-label="Voltar" className="wide:hidden">
             <Link href={backHref()}>
               <ArrowLeft />
             </Link>
