@@ -1,4 +1,4 @@
-import { CircleAlert, Clock, FilePen, FileText, Folder, GitFork, Info, Link2, Loader2, Pause, Play, SquareTerminal } from 'lucide-react'
+import { CircleAlert, Clock, FilePen, FileText, Folder, GitFork, Info, Link2, Pause, Play, SquareTerminal } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { toolLine } from '@/components/agents/model'
 import { useNow } from '@/components/agents/status'
@@ -17,6 +17,7 @@ import { cn } from '@/lib/utils'
 import { Activity } from './activity'
 import { ApprovalCard } from './approval-card'
 import { BackgroundTasks } from './background-tasks'
+import { ClaudeSpinner } from './claude-spinner'
 import { GalleryContext, galleryOf, useGallery } from './gallery'
 import type { Item } from './items'
 import { QuestionCard } from './question-card'
@@ -291,7 +292,7 @@ function WorkingLine({ items }: { items: Item[] }) {
   const now = useNow(Boolean(running?.at))
   return (
     <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground" role="status">
-      <Loader2 className="size-3.5 shrink-0 animate-spin" />
+      <ClaudeSpinner className="size-4" />
       {running ? (
         <>
           <span className="shrink-0">Rodando</span>
