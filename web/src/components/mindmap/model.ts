@@ -2,6 +2,7 @@ import type { AgentStatus, AgentTree } from '@/components/agents/model'
 import { AGENT_TOOLS, type ActivityEntry, type Item } from '@/components/chat/items'
 import type { ToolEntry } from '@/components/chat/turn'
 import { duration, toolSummary } from '@/lib/format'
+import type { Question } from '@/lib/types'
 
 /**
  * Mapa mental da conversa: ela no centro, cada mensagem sua é um galho, e dele saem os passos
@@ -15,7 +16,10 @@ export type MindKind =
   | 'step'
   | 'answer'
   | 'approval'
-  | 'question'
+  /** Ponto de decisão: uma pergunta que o Claude fez com opções. Desenhado como losango. */
+  | 'decision'
+  /** Um galho da decisão: o caminho que você tomou ou um que ficou para trás. */
+  | 'option'
   | 'agent'
   | 'file'
   | 'command'
@@ -47,6 +51,8 @@ export type MindNode = {
   folded?: number
   /** "+N ações" / "Mostrar menos": o nó cujas pontas o toque abre ou fecha. */
   toggles?: string
+  /** Num galho de decisão: `true` é o caminho que você tomou, `false` um descartado; sem resposta, nada. */
+  chosen?: boolean
   children: MindNode[]
 }
 
@@ -108,7 +114,118 @@ function worst(a: MindStatus, b: MindStatus): MindStatus {
 }
 
 /** `scope`: o passo ou subagente dono das pontas (um arquivo aparece uma vez em cada). */
-type Ctx = { branch: number; pending: Set<string>; agents: AgentTree; itemKey: string; scope: string }
+/**
+ * `asked`: perguntas que já viraram decisão pelo pedido ao vivo do painel. A chamada da ferramenta
+ * delas também chega como ação, e sem isto cada pergunta apareceria duas vezes no mapa.
+ */
+type Ctx = { branch: number; pending: Set<string>; agents: AgentTree; itemKey: string; scope: string; asked: Set<string> }
+
+/** As perguntas do input da AskUserQuestion, no formato do pedido ao vivo; vazio se não bater. */
+function questionsOf(input: Record<string, unknown>): Question[] {
+  const raw = Array.isArray(input.questions) ? (input.questions as Record<string, unknown>[]) : []
+  return raw.flatMap((q) =>
+    typeof q?.question === 'string' && Array.isArray(q.options)
+      ? [
+          {
+            question: q.question,
+            header: str(q.header),
+            multiSelect: Boolean(q.multiSelect),
+            options: (q.options as Record<string, unknown>[]).map((o) => ({ label: str(o.label), description: str(o.description) })),
+          },
+        ]
+      : [],
+  )
+}
+
+/**
+ * As respostas, recortadas do texto que o Claude Code grava no resultado da AskUserQuestion. O
+ * histórico só guarda esse texto (o SDK descarta a versão estruturada), mas o miolo é estável —
+ * `"pergunta"="resposta"`, uma atrás da outra —, e como as perguntas vêm exatas do input, cada
+ * resposta vai do fim da sua pergunta até o começo da próxima.
+ */
+export function parseAnswers(text: string, questions: string[]): Record<string, string> {
+  const out: Record<string, string> = {}
+  questions.forEach((q, i) => {
+    const open = `"${q}"="`
+    const at = text.indexOf(open)
+    if (at < 0) return
+    const start = at + open.length
+    const nexts = questions
+      .slice(i + 1)
+      .map((n) => text.indexOf(`", "${n}"="`, start))
+      .filter((p) => p >= 0)
+    const tail = text.indexOf('". ', start)
+    const end = nexts.length ? Math.min(...nexts) : tail >= 0 ? tail : text.lastIndexOf('"')
+    if (end > start) out[q] = text.slice(start, end)
+  })
+  return out
+}
+
+/**
+ * Se a opção está entre as escolhidas: a resposta inteira, ou um dos itens de uma múltipla escolha,
+ * que chega com os rótulos unidos por vírgula. Compara o rótulo inteiro com fronteira dos dois
+ * lados, porque os próprios rótulos podem ter vírgula dentro.
+ */
+function picked(answer: string, label: string): boolean {
+  if (!label) return false
+  for (let at = answer.indexOf(label); at >= 0; at = answer.indexOf(label, at + 1)) {
+    const before = at === 0 || answer.slice(at - 2, at) === ', '
+    const end = at + label.length
+    const after = end === answer.length || answer.slice(end, end + 2) === ', '
+    if (before && after) return true
+  }
+  return false
+}
+
+/**
+ * Cada pergunta vira um losango, e cada opção um galho dele: o que você escolheu fica aceso, os que
+ * ficaram para trás, apagados. Resposta escrita à mão não bate com nenhuma opção e vira um galho
+ * próprio. Sem resposta (pendente ou recusada), os galhos ficam neutros.
+ */
+function decisions(
+  questions: Question[],
+  answers: Record<string, string> | undefined,
+  base: { id: string; branch: number; itemKey?: string; open: boolean; requestId?: string },
+): MindNode[] {
+  return questions.map((q, qi) => {
+    const id = `${base.id}:d${qi}`
+    const answer = answers?.[q.question]?.trim()
+    const known = !base.open && answer !== undefined && answer !== ''
+    const option = (label: string, i: number | string, chosen: boolean | undefined, meta?: string): MindNode => ({
+      id: `${id}:${i}`,
+      kind: 'option',
+      label,
+      meta,
+      status: 'done',
+      branch: base.branch,
+      itemKey: base.itemKey,
+      chosen,
+      children: [],
+    })
+    const options = q.options.map((o, i) => option(o.label, i, known ? picked(answer, o.label) : undefined))
+    const took = options.filter((o) => o.chosen).length
+    if (known && took === 0) options.push(option(answer, 'livre', true, 'sua resposta'))
+    return {
+      id,
+      kind: 'decision',
+      label: q.question,
+      meta: base.open
+        ? 'Pergunta para você'
+        : !known
+          ? 'Sem resposta'
+          : took === 0
+            ? 'Respondida com texto seu'
+            : q.multiSelect
+              ? `Escolheu ${took} de ${q.options.length}`
+              : `Escolheu 1 de ${q.options.length}`,
+      status: base.open ? 'waiting' : 'done',
+      branch: base.branch,
+      itemKey: base.itemKey,
+      requestId: base.requestId,
+      children: options,
+    }
+  })
+}
 
 /** As pontas de um passo: cada arquivo uma vez só (lido e editado juntos), o resto na ordem. */
 function leaves(entries: ActivityEntry[], ctx: Ctx): MindNode[] {
@@ -119,6 +236,17 @@ function leaves(entries: ActivityEntry[], ctx: Ctx): MindNode[] {
     if (e.kind !== 'tool' || HIDDEN.has(e.use.name)) continue
     const { name, input } = e.use
     const base = { branch: ctx.branch, itemKey: ctx.itemKey, tool: name, status: toolStatus(e, ctx.pending), children: [] }
+
+    if (name === 'AskUserQuestion') {
+      const questions = questionsOf(input)
+      // Pergunta do painel ao vivo: o pedido dela já desenha a decisão, com a resposta estruturada.
+      if (questions.length && questions.every((q) => ctx.asked.has(q.question))) continue
+      if (questions.length) {
+        const answers = e.result && !e.result.isError ? parseAnswers(e.result.text, questions.map((q) => q.question)) : undefined
+        out.push(...decisions(questions, answers, { id: e.use.id, branch: ctx.branch, itemKey: ctx.itemKey, open: !e.result }))
+        continue
+      }
+    }
 
     if (AGENT_TOOLS.has(name)) {
       const agent = ctx.agents.byId.get(e.use.id)
@@ -231,6 +359,7 @@ export function mindTree({
   agents: AgentTree
 }): MindNode {
   const pending = new Set(items.flatMap((i) => (i.type === 'approval' && !i.resolution && i.req.toolUseId ? [i.req.toolUseId] : [])))
+  const asked = new Set(items.flatMap((i) => (i.type === 'question' ? i.req.questions.map((q) => q.question) : [])))
   const turns: Turn[] = []
   let turn: Turn | null = null
   // Fala do Claude ainda sem destino: vira o título do próximo passo, ou a resposta se o turno acabar.
@@ -271,7 +400,7 @@ export function mindTree({
         break
       case 'activity': {
         const t = ensureTurn(item.key)
-        const ctx = { branch: t.branch, pending, agents, itemKey: said?.key ?? item.key, scope: item.key }
+        const ctx = { branch: t.branch, pending, agents, itemKey: said?.key ?? item.key, scope: item.key, asked }
         const kids = leaves(item.entries, ctx)
         if (!kids.length && !said) break
         const status = kids.reduce<MindStatus>((s, k) => worst(s, k.status === 'failed' ? 'done' : k.status), 'done')
@@ -311,18 +440,10 @@ export function mindTree({
       case 'question': {
         flushSaid('step')
         const open = !item.resolution
-        add(
-          {
-            id: item.key,
-            kind: 'question',
-            label: item.req.questions.map((q) => q.question).join(' · '),
-            meta: open ? 'Pergunta para você' : item.resolution?.decision === 'answered' ? 'Respondida' : 'Sem resposta',
-            status: open ? 'waiting' : 'done',
-            itemKey: item.key,
-            requestId: open ? item.req.requestId : undefined,
-          },
-          item.key,
-        )
+        // Recusada ou cancelada: não houve caminho tomado, e os galhos ficam neutros.
+        const answers = item.resolution?.decision === 'answered' ? item.resolution.answers : undefined
+        const base = { id: item.key, branch: ensureTurn(item.key).branch, itemKey: item.key, open, requestId: open ? item.req.requestId : undefined }
+        for (const d of decisions(item.req.questions, answers, base)) add(d, item.key)
         break
       }
       case 'result': {
@@ -348,11 +469,15 @@ export function mindTree({
     add({ id: 'streaming', kind: 'step', label: firstSentence(streaming) || 'Escrevendo…', status: 'running' }, 'streaming')
   }
 
+  // Quantos pontos de decisão o galho tem, em qualquer profundidade: no turno recolhido eles somem,
+  // e a contagem na segunda linha é o que avisa que vale abrir.
+  const decided = (n: MindNode): number => (n.kind === 'decision' ? 1 : 0) + n.children.reduce((sum, c) => sum + decided(c), 0)
   for (const t of turns) {
     const steps = t.children.filter((c) => c.kind !== 'notice').length
+    const choices = decided(t)
     if (t.children.some((c) => c.status === 'waiting')) t.status = 'waiting'
     else if (t === last && live) t.status = 'running'
-    t.meta = [steps && plural(steps, 'passo', 'passos'), t.meta].filter(Boolean).join(' · ') || undefined
+    t.meta = [steps && plural(steps, 'passo', 'passos'), choices && plural(choices, 'decisão', 'decisões'), t.meta].filter(Boolean).join(' · ') || undefined
   }
 
   // No turno em andamento, o último passo é onde ele está agora (se nada mais estiver rodando).
@@ -398,9 +523,13 @@ export function fold(root: MindNode, open: ReadonlyMap<string, boolean>): MindNo
 
 function trim(n: MindNode, open: ReadonlyMap<string, boolean>): MindNode {
   const kids = n.children.map((c) => trim(c, open))
-  if (kids.length <= MAX_LEAVES) return { ...n, children: kids }
+  // Decisão nunca vai para o "+N ações": é o que o mapa quer destacar, e um passo com muitas ações
+  // a esconderia. Só as ações comuns contam para o limite, e as mais antigas é que somem.
+  const plain = kids.filter((k) => k.kind !== 'decision')
+  if (plain.length <= MAX_LEAVES) return { ...n, children: kids }
   const toggle = (label: string): MindNode => ({ id: `${n.id}:more`, kind: 'more', label, status: 'done', branch: n.branch, toggles: n.id, children: [] })
   if (open.get(n.id)) return { ...n, children: [...kids, toggle('Mostrar menos')] }
-  const hidden = kids.length - (MAX_LEAVES - 1)
-  return { ...n, children: [toggle(`+${plural(hidden, 'ação', 'ações')}`), ...kids.slice(-(MAX_LEAVES - 1))] }
+  const hidden = plain.length - (MAX_LEAVES - 1)
+  const drop = new Set(plain.slice(0, hidden))
+  return { ...n, children: [toggle(`+${plural(hidden, 'ação', 'ações')}`), ...kids.filter((k) => !drop.has(k))] }
 }

@@ -1,4 +1,4 @@
-import { BRANCH_COLORS, edgePath, edgeWidth, isLeaf, type Box, type Layout } from './layout'
+import { BRANCH_COLORS, decisionPoints, edgeLook, edgePath, isLeaf, type Box, type Layout } from './layout'
 import type { MindStatus } from './model'
 
 /**
@@ -91,6 +91,40 @@ function nodeSvg(ctx: CanvasRenderingContext2D, font: string, box: Box, theme: T
       status
     )
   }
+  if (n.kind === 'decision') {
+    const waiting = n.status === 'waiting'
+    const edge = waiting ? '#f59e0b' : color
+    const d = 5
+    const cx = x + 25
+    const cy = y + h / 2
+    return (
+      `<polygon points="${decisionPoints(x, y, w, h, 0.75)}" fill="${theme.card}" stroke="${edge}" stroke-width="1.5" stroke-linejoin="round"/>` +
+      `<polygon points="${cx},${cy - d} ${cx + d},${cy} ${cx},${cy + d} ${cx - d},${cy}" fill="${edge}"/>` +
+      textBlock(ctx, font, box, x + 36, w - 56, { text: n.label, size: 12, weight: 500, lines: 2, color: theme.foreground }, n.meta ? { text: n.meta, color: theme.muted } : undefined)
+    )
+  }
+  if (n.kind === 'option') {
+    const took = n.chosen === true
+    const dropped = n.chosen === false
+    const cy = y + h / 2
+    const mark = took
+      ? `<path d="M${x + 9} ${cy} l3 3 l6 -6" fill="none" stroke="${color}" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/>`
+      : dropped
+        ? `<path d="M${x + 10} ${cy - 3.5} l7 7 M${x + 17} ${cy - 3.5} l-7 7" stroke="${theme.muted}" stroke-width="1.5" stroke-linecap="round"/>`
+        : `<polygon points="${x + 13},${cy - 4} ${x + 17},${cy} ${x + 13},${cy + 4} ${x + 9},${cy}" fill="none" stroke="${color}"/>`
+    ctx.font = `400 10.5px ${font}`
+    const metaW = n.meta ? Math.min(ctx.measureText(n.meta).width, w / 2) : 0
+    const label =
+      textBlock(ctx, font, box, x + 23, w - 34 - (metaW ? metaW + 6 : 0), { text: n.label, size: 11.5, weight: took ? 600 : 400, lines: 1, color: dropped ? theme.muted : theme.foreground }) +
+      (n.meta ? `<text x="${x + w - 11}" y="${cy + 3.5}" font-size="10.5" fill="${theme.muted}" text-anchor="end">${esc(n.meta)}</text>` : '')
+    return (
+      `<g opacity="${dropped ? 0.6 : 1}">` +
+      `<rect x="${x + 1}" y="${y + 1}" width="${w - 2}" height="${h - 2}" rx="${h / 2}" fill="${took ? theme.card : theme.background}" stroke="${took ? color : theme.border}" stroke-width="${took ? 2 : 1}" ${dropped ? 'stroke-dasharray="4 3"' : ''}/>` +
+      mark +
+      label +
+      `</g>`
+    )
+  }
   if (isLeaf(n)) {
     ctx.font = `400 10.5px ${font}`
     const metaW = n.meta ? Math.min(ctx.measureText(n.meta).width, w / 2) : 0
@@ -127,7 +161,7 @@ export function mapSvg(g: Layout): string {
   const edges = g.edges
     .map(
       (e) =>
-        `<path d="${edgePath(e, g.mode)}" fill="none" stroke="${branchHex(e.to.node.branch, theme)}" stroke-width="${edgeWidth(e.to)}" stroke-linecap="round" stroke-opacity="${isLeaf(e.to.node) ? 0.55 : 0.85}"/>`,
+        `<path d="${edgePath(e, g.mode)}" fill="none" stroke="${branchHex(e.to.node.branch, theme)}" stroke-width="${edgeLook(e.to).width}" stroke-linecap="round" stroke-opacity="${edgeLook(e.to).opacity}"${edgeLook(e.to).dash ? ` stroke-dasharray="${edgeLook(e.to).dash}"` : ''}/>`,
     )
     .join('')
   const nodes = g.boxes.map((b) => nodeSvg(ctx, font, b, theme)).join('')

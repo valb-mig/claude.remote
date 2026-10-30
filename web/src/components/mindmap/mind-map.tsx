@@ -1,6 +1,7 @@
 import {
   Bot,
   BrainCircuit,
+  Check,
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
@@ -12,16 +13,15 @@ import {
   Lightbulb,
   ListTree,
   Loader2,
-  LocateFixed,
-  MessageCircleQuestion,
   MessageSquareText,
   Minus,
   Network,
   PanelRight,
+  Route,
   Plus,
-  Scan,
   Share2,
   ShieldAlert,
+  X,
   type LucideIcon,
 } from 'lucide-react'
 import { createElement, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
@@ -35,17 +35,23 @@ import { errorMessage } from '@/lib/api'
 import { useWidth } from '@/lib/hooks'
 import { cn } from '@/lib/utils'
 import { canShareImage, download, mapImage, type ImageFormat } from './export'
-import { branchColor, edgePath, edgeWidth, isLeaf, layout, type Box, type Mode } from './layout'
+import { branchColor, decisionPoints, edgeLook, edgePath, isLeaf, layout, type Box, type Mode } from './layout'
 import { focusOf, fold, type MindKind, type MindNode } from './model'
 
 const MODES: { mode: Mode; label: string; icon: LucideIcon }[] = [
+  { mode: 'path', label: 'Caminho (uma linha por turno)', icon: Route },
   { mode: 'map', label: 'Mapa (galhos dos dois lados)', icon: Network },
   { mode: 'right', label: 'Galhos para a direita', icon: PanelRight },
   { mode: 'tree', label: 'Árvore (de cima para baixo)', icon: ListTree },
 ]
 
-/** O maior arranjo que cabe legível na largura: o mapa completo só em tela grande. */
-const autoMode = (width: number): Mode => (width >= 1300 ? 'map' : width >= 720 ? 'right' : 'tree')
+/**
+ * O caminho é o padrão onde ele cabe: é o que mostra por onde a conversa foi. No celular em pé, a
+ * árvore — uma faixa por turno ali obrigaria a arrastar de lado o tempo todo.
+ */
+const autoMode = (width: number): Mode => (width >= 720 ? 'path' : 'tree')
+/** Depois de mexer no mapa com a mão, por quanto tempo ele não puxa você de volta ao passo atual. */
+const HANDS_OFF_MS = 4000
 const MIN_ZOOM = 0.3
 const MAX_ZOOM = 1.6
 const clampZoom = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(z * 100) / 100))
@@ -56,7 +62,6 @@ const KIND_ICON: Partial<Record<MindKind, LucideIcon>> = {
   step: Lightbulb,
   answer: MessageSquareText,
   approval: ShieldAlert,
-  question: MessageCircleQuestion,
   agent: Bot,
   notice: Info,
 }
@@ -106,6 +111,66 @@ function NodeView({ box, onTap }: { box: Box; onTap: (n: MindNode) => void }) {
         <ChevronRight
           className={cn('size-4 shrink-0 text-muted-foreground transition-transform', box.side === -1 && 'rotate-180', n.folded === undefined && 'opacity-30')}
         />
+      </button>
+    )
+  }
+
+  if (n.kind === 'decision') {
+    const waiting = n.status === 'waiting'
+    const edge = waiting ? 'var(--color-amber-500)' : color
+    return (
+      <button type="button" onClick={() => onTap(n)} style={style} title={n.label} className={cn('absolute text-left active:scale-[0.98]', enter)}>
+        <svg width={box.w} height={box.h} className="absolute inset-0 overflow-visible drop-shadow-sm" aria-hidden>
+          <polygon
+            points={decisionPoints(0, 0, box.w, box.h, 0.75)}
+            fill={waiting ? 'color-mix(in oklab, var(--color-amber-500) 12%, var(--card))' : 'var(--card)'}
+            stroke={edge}
+            strokeWidth={1.5}
+            strokeLinejoin="round"
+          />
+        </svg>
+        <span className="relative flex h-full items-center gap-2 pr-5 pl-5">
+          {/* O losango pequeno marca o ponto de decisão mesmo de longe, no zoom afastado. */}
+          <span className="size-2.5 shrink-0 rotate-45 rounded-[2px]" style={{ background: edge }} />
+          <span className="min-w-0 flex-1">
+            <span className="line-clamp-2 text-[12px] leading-snug font-medium">{n.label}</span>
+            {n.meta && (
+              <span className={cn('block truncate text-[10.5px]', waiting ? 'font-medium text-amber-700 dark:text-amber-300' : 'text-muted-foreground')}>
+                {n.meta}
+              </span>
+            )}
+          </span>
+        </span>
+      </button>
+    )
+  }
+
+  if (n.kind === 'option') {
+    const took = n.chosen === true
+    const dropped = n.chosen === false
+    return (
+      <button
+        type="button"
+        onClick={() => onTap(n)}
+        style={{ ...style, borderColor: took ? color : undefined }}
+        title={dropped ? `Descartada: ${n.label}` : n.label}
+        className={cn(
+          'absolute flex items-center gap-1.5 rounded-full border px-2.5 text-left text-[11.5px] transition-shadow hover:shadow-md active:scale-[0.98]',
+          enter,
+          took && 'border-2 bg-card font-medium shadow-sm',
+          dropped && 'border-dashed bg-background/60 text-muted-foreground opacity-60',
+          n.chosen === undefined && 'bg-background',
+        )}
+      >
+        {took ? (
+          <Check className="size-3.5 shrink-0" style={{ color }} strokeWidth={3} />
+        ) : dropped ? (
+          <X className="size-3.5 shrink-0" />
+        ) : (
+          <span className="size-2 shrink-0 rotate-45 border" style={{ borderColor: color }} />
+        )}
+        <span className={cn('min-w-0 flex-1 truncate', dropped && 'line-through decoration-muted-foreground/50')}>{n.label}</span>
+        {n.meta && <span className="shrink-0 text-[10.5px] text-muted-foreground">{n.meta}</span>}
       </button>
     )
   }
@@ -188,16 +253,21 @@ export function MindMap({
   const scroller = useRef<HTMLDivElement>(null)
   const width = useWidth(scroller)
   const [open, setOpen] = useState<ReadonlyMap<string, boolean>>(new Map())
-  const visible = useMemo(() => fold(root, open), [root, open])
   const [modePick, setMode] = useState<Mode | null>(null)
   const mode = modePick ?? autoMode(width)
+  // No caminho cada turno é uma faixa só, então nenhum precisa ser recolhido para caber.
+  const visible = useMemo(() => (mode === 'path' ? root : fold(root, open)), [root, open, mode])
   const g = useMemo(() => layout(visible, mode, width || 360), [visible, mode, width])
   const fit = width ? Math.min(1, width / g.width) : 1
   const [zoomPick, setZoom] = useState<number | null>(null)
   const scale = zoomPick ?? (mode === 'tree' ? 1 : Math.max(fit, 0.6))
-  const [follow, setFollow] = useState(true)
-
-  // Ao vivo: mantém à vista o pedido que espera você ou o passo em andamento.
+  /**
+   * Ao vivo, sempre: mantém à vista o pedido que espera você ou o passo em andamento. Não há botão
+   * para ligar e desligar — mexer no mapa com a mão é que segura: por alguns segundos depois disso
+   * o mapa deixa você olhar outra parte em paz, e fora disso cada passo novo volta a ficar à vista.
+   * Com o Claude parado o foco não muda, e nada puxa você de volta.
+   */
+  const movedAt = useRef(0)
   const focus = useMemo(() => focusOf(visible), [visible])
   const focusBox = g.boxes.find((b) => b.node.id === focus.id)
   const fx = focusBox ? focusBox.x + focusBox.w / 2 : null
@@ -205,20 +275,21 @@ export function MindMap({
   const placed = useRef(false)
   useLayoutEffect(() => {
     const el = scroller.current
-    if (!el || !follow || fx === null || fy === null || !width) return
+    if (!el || fx === null || fy === null || !width) return
+    if (placed.current && Date.now() - movedAt.current < HANDS_OFF_MS) return
     el.scrollTo({
       left: fx * scale - el.clientWidth / 2,
       top: TOOLBAR + fy * scale - el.clientHeight / 2,
       behavior: placed.current ? 'smooth' : 'auto',
     })
     placed.current = true
-  }, [follow, fx, fy, scale, width])
+  }, [fx, fy, scale, width])
 
-  // Arrastar ou rolar com a mão solta o acompanhamento; o botão de mira volta a seguir.
+  // Rolagem com a mão (dedo ou roda) marca o momento; a do próprio acompanhamento não conta.
   const touching = useRef(false)
   const wheelAt = useRef(0)
   const onScroll = () => {
-    if (follow && (touching.current || Date.now() - wheelAt.current < 250)) setFollow(false)
+    if (touching.current || Date.now() - wheelAt.current < 250) movedAt.current = Date.now()
   }
 
   // Pinça no celular e Ctrl + roda no PC mudam o zoom (a página em si não tem zoom no app).
@@ -262,7 +333,8 @@ export function MindMap({
 
   const toggle = (id: string, value: boolean) => setOpen((m) => new Map(m).set(id, value))
   const tap = (n: MindNode) => {
-    if (n.kind === 'turn') return toggle(n.id, n.folded !== undefined)
+    // No caminho não há o que abrir: o turno leva à mensagem, como os outros nós.
+    if (n.kind === 'turn' && mode !== 'path') return toggle(n.id, n.folded !== undefined)
     if (n.toggles) return toggle(n.toggles, n.label.startsWith('+'))
     if (n.agentId) return onAgent(n.agentId)
     if (n.requestId && n.itemKey) return onRequest(n.itemKey)
@@ -310,19 +382,22 @@ export function MindMap({
           <div className="relative mx-auto" style={{ width: g.width * scale, height: g.height * scale, marginTop: TOOLBAR }}>
             <div className="absolute top-0 left-0 origin-top-left" style={{ width: g.width, height: g.height, transform: `scale(${scale})` }}>
               <svg width={g.width} height={g.height} className="absolute inset-0" aria-hidden>
-                {g.edges.map((e) => (
-                  <path
-                    key={e.to.node.id}
-                    d={edgePath(e, g.mode)}
-                    fill="none"
-                    stroke={branchColor(e.to.node.branch)}
-                    strokeWidth={edgeWidth(e.to)}
-                    strokeLinecap="round"
-                    strokeOpacity={isLeaf(e.to.node) ? 0.55 : 0.85}
-                    strokeDasharray={active(e.to.node) ? '6 5' : undefined}
-                    className={cn(active(e.to.node) && 'motion-safe:animate-[agent-flow_0.9s_linear_infinite]')}
-                  />
-                ))}
+                {g.edges.map((e) => {
+                  const look = edgeLook(e.to)
+                  return (
+                    <path
+                      key={e.to.node.id}
+                      d={edgePath(e, g.mode)}
+                      fill="none"
+                      stroke={branchColor(e.to.node.branch)}
+                      strokeWidth={look.width}
+                      strokeLinecap="round"
+                      strokeOpacity={look.opacity}
+                      strokeDasharray={active(e.to.node) ? '6 5' : look.dash}
+                      className={cn(active(e.to.node) && 'motion-safe:animate-[agent-flow_0.9s_linear_infinite]')}
+                    />
+                  )
+                })}
               </svg>
               {g.boxes.map((box) => (
                 <NodeView key={box.node.id} box={box} onTap={tap} />
@@ -335,17 +410,6 @@ export function MindMap({
       <div className="pointer-events-none absolute top-2 right-2 left-2 flex justify-end">
         <div className="pointer-events-auto flex items-center gap-0.5 rounded-lg border bg-background/85 p-0.5 shadow-sm backdrop-blur">
           <Button
-            variant={follow ? 'ghost' : 'secondary'}
-            size="icon-sm"
-            onClick={() => setFollow(!follow)}
-            aria-pressed={follow}
-            aria-label={follow ? 'Acompanhando ao vivo: tocar para soltar' : 'Voltar a acompanhar ao vivo'}
-            title={follow ? 'Acompanhando ao vivo' : 'Acompanhar ao vivo'}
-            className={cn(follow && 'text-sky-600 dark:text-sky-400')}
-          >
-            <LocateFixed />
-          </Button>
-          <Button
             variant="ghost"
             size="icon-sm"
             onClick={() => {
@@ -357,21 +421,11 @@ export function MindMap({
           >
             <ModeIcon />
           </Button>
-          <Button variant="ghost" size="icon-sm" onClick={toggleAll} aria-label={anyFolded ? 'Abrir todos os turnos' : 'Recolher os turnos'} title={anyFolded ? 'Abrir todos' : 'Recolher'}>
-            {anyFolded ? <ChevronsUpDown /> : <ChevronsDownUp />}
-          </Button>
-          <Button variant="ghost" size="icon-sm" onClick={() => zoom(-0.1)} aria-label="Diminuir">
-            <Minus />
-          </Button>
-          <button type="button" className="w-10 text-center text-xs text-muted-foreground tabular-nums" onClick={() => setZoom(1)} title="Tamanho real">
-            {Math.round(scale * 100)}%
-          </button>
-          <Button variant="ghost" size="icon-sm" onClick={() => zoom(0.1)} aria-label="Aumentar">
-            <Plus />
-          </Button>
-          <Button variant="ghost" size="icon-sm" onClick={() => setZoom(fit)} aria-label="Caber na tela" title="Caber na tela">
-            <Scan />
-          </Button>
+          {mode !== 'path' && (
+            <Button variant="ghost" size="icon-sm" onClick={toggleAll} aria-label={anyFolded ? 'Abrir todos os turnos' : 'Recolher os turnos'} title={anyFolded ? 'Abrir todos' : 'Recolher'}>
+              {anyFolded ? <ChevronsUpDown /> : <ChevronsDownUp />}
+            </Button>
+          )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon-sm" disabled={exporting || root.children.length === 0} aria-label="Salvar como imagem" title="Salvar como imagem">
@@ -405,6 +459,18 @@ export function MindMap({
             </Button>
           )}
         </div>
+      </div>
+      {/* Zoom no canto de baixo, longe do resto da barra: é o que mais se mexe, e ali o polegar alcança. */}
+      <div className="pointer-events-auto absolute right-2 bottom-2 flex items-center gap-0.5 rounded-lg border bg-background/85 p-0.5 shadow-sm backdrop-blur">
+        <Button variant="ghost" size="icon-sm" onClick={() => zoom(-0.1)} aria-label="Diminuir">
+          <Minus />
+        </Button>
+        <button type="button" className="w-10 text-center text-xs text-muted-foreground tabular-nums" onClick={() => setZoom(1)} title="Tamanho real">
+          {Math.round(scale * 100)}%
+        </button>
+        <Button variant="ghost" size="icon-sm" onClick={() => zoom(0.1)} aria-label="Aumentar">
+          <Plus />
+        </Button>
       </div>
     </div>
   )
