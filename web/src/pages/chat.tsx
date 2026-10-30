@@ -665,7 +665,9 @@ export function ChatPage({ id }: { id: string }) {
             pane.collapsed && 'hidden',
           )}
         >
-          <div className="relative min-w-0 flex-1" inert={shown === 'map'}>
+          {/* Só o mapa: o chat segue montado por baixo (o mapa pula para os pontos dele), mas some de
+              vista, senão apareceria através do mapa quando ele fica transparente sobre o fundo animado. */}
+          <div className={cn('relative min-w-0 flex-1', shown === 'map' && 'invisible')} inert={shown === 'map'}>
             {/* A lâmina de vidro embaixo da coluna de mensagens: desfoca a cena atrás do texto, e as
                 margens seguem nítidas. Fica fora do scroller de propósito — dentro dele, o desfoque
                 seria recalculado a cada quadro de rolagem em vez de só quando a cena muda. */}
