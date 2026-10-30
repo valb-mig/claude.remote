@@ -46,7 +46,7 @@ function NewChat({ machine }: { machine: string }) {
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex shrink-0 items-center gap-1 border-b px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 compact:py-1">
         {/* No PC a lista de conversas já está ao lado. */}
-        <Button variant="ghost" size="icon" asChild aria-label="Voltar" className="lg:hidden">
+        <Button variant="ghost" size="icon" asChild aria-label="Voltar" className="wide:hidden">
           <Link href={backHref()}>
             <ArrowLeft />
           </Link>

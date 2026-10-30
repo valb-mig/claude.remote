@@ -6,6 +6,12 @@
 @custom-variant dark (&:is(.dark *));
 /* Celular deitado: tela baixa e ainda estreita para a lista ao lado (abaixo do `lg:`). */
 @custom-variant compact (@media (orientation: landscape) and (max-height: 32rem) and (max-width: 63.99rem));
+/* Layout de PC, com a alça e a lista ao lado: a mesma consulta do `useWide` (lib/hooks.ts). */
+@custom-variant wide {
+  @media (min-width: 64rem), (min-width: 48rem) and (pointer: fine) {
+    @slot;
+  }
+}
 
 @theme inline {
     --font-heading: var(--font-sans);
