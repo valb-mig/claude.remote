@@ -243,6 +243,25 @@ function useAutoScroll(deps: unknown[]) {
   return { scrollRef, contentRef, onScroll, atBottom, follow, setFollow, jumpToBottom }
 }
 
+/**
+ * O véu atrás da conversa, na cor do fundo e com um leve desfoque: puxa a cena de volta para o fundo
+ * do app, para o texto ficar legível. Mais largo que a coluna de texto (48rem) para o esfumaçado das
+ * laterais cair fora dela, e não atrás das letras.
+ */
+function Veil({ scrim }: { scrim: string }) {
+  return (
+    <div
+      aria-hidden
+      // A máscara esfumaça as laterais: sem ela o véu vira um retângulo com borda dura no meio da cena.
+      className={cn(
+        'pointer-events-none absolute inset-y-0 left-1/2 w-full max-w-[56rem] -translate-x-1/2 backdrop-blur-[1.5px]',
+        '[mask-image:linear-gradient(90deg,transparent,#000_7%,#000_93%,transparent)]',
+        scrim,
+      )}
+    />
+  )
+}
+
 export function ChatPage({ id }: { id: string }) {
   // Com conversas lado a lado (ver lib/split.ts), cada ação mexe só neste lugar da tela.
   const pane = usePane()
@@ -649,17 +668,7 @@ export function ChatPage({ id }: { id: string }) {
             {/* A lâmina de vidro embaixo da coluna de mensagens: desfoca a cena atrás do texto, e as
                 margens seguem nítidas. Fica fora do scroller de propósito — dentro dele, o desfoque
                 seria recalculado a cada quadro de rolagem em vez de só quando a cena muda. */}
-            {glass && (
-              <div
-                aria-hidden
-                // A máscara esfumaça as laterais: sem ela o véu vira um retângulo com borda dura no meio da cena.
-                className={cn(
-                  'pointer-events-none absolute inset-y-0 left-1/2 w-full max-w-3xl -translate-x-1/2 backdrop-blur-[1.5px]',
-                  '[mask-image:linear-gradient(90deg,transparent,#000_7%,#000_93%,transparent)]',
-                  scrim,
-                )}
-              />
-            )}
+            {glass && <Veil scrim={scrim} />}
             <StickyPrompt scrollRef={scrollRef} items={items} />
             <div ref={scrollRef} onScroll={onScroll} className="absolute inset-0 overflow-y-auto">
               <div ref={contentRef} className="mx-auto w-full max-w-3xl">
@@ -749,71 +758,77 @@ export function ChatPage({ id }: { id: string }) {
         </div>
 
         {/* Encolhida (celular em pé, digitando na outra): some sem desmontar, sem perder rascunho nem leitura. */}
-        <div className={pane.collapsed ? 'hidden' : 'contents'}>
-          {shown === 'map' && owner === 'panel' && requests.length > 0 && (
-            <div
-              ref={dockRef}
-              className={cn(
-                'max-h-[45dvh] shrink-0 space-y-3 overflow-y-auto border-t px-4 py-3',
-                glass ? 'bg-background/70 backdrop-blur-md' : 'bg-background',
-              )}
-            >
-              {requests.map((r) =>
-                r.type === 'approval' ? (
-                  <ApprovalCard key={r.key} type={r.type} req={r.req} agent={r.agent} sessionId={id} actionable={panelOpen} />
-                ) : (
-                  <QuestionCard key={r.key} type={r.type} req={r.req} sessionId={id} actionable={panelOpen} />
-                ),
-              )}
-            </div>
-          )}
-          <SpeechPlayer sessionId={id} />
+        <div className={cn('relative flex shrink-0 flex-col', pane.collapsed && 'hidden')}>
+          {/* O véu continua atrás da barra de texto até o fim da tela; sem isto ele parava no topo dela,
+              e em volta da barra a cena aparecia sem escurecer. */}
+          {glass && <Veil scrim={scrim} />}
+          {/* Posicionado para ficar por cima do véu, que é absoluto. */}
+          <div className="relative flex flex-col">
+            {shown === 'map' && owner === 'panel' && requests.length > 0 && (
+              <div
+                ref={dockRef}
+                className={cn(
+                  'max-h-[45dvh] shrink-0 space-y-3 overflow-y-auto border-t px-4 py-3',
+                  glass ? 'bg-background/70 backdrop-blur-md' : 'bg-background',
+                )}
+              >
+                {requests.map((r) =>
+                  r.type === 'approval' ? (
+                    <ApprovalCard key={r.key} type={r.type} req={r.req} agent={r.agent} sessionId={id} actionable={panelOpen} />
+                  ) : (
+                    <QuestionCard key={r.key} type={r.type} req={r.req} sessionId={id} actionable={panelOpen} />
+                  ),
+                )}
+              </div>
+            )}
+            <SpeechPlayer sessionId={id} />
 
-          {owner === 'pc' ? (
-            <div
-              className={cn(
-                'shrink-0 space-y-2 border-t px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]',
-                glass && 'bg-background/70 backdrop-blur-md',
-              )}
-            >
-              <p className="text-xs text-muted-foreground">
-                {state === 'idle'
-                  ? 'Aberta no PC e ociosa. Assumir encerra a sessão no PC e a continua aqui, com todo o contexto.'
-                  : 'Aberta no PC e ocupada. Dá para assumir quando ela ficar ociosa.'}
-              </p>
-              <Button className="h-11 w-full" disabled={busy || state !== 'idle'} onClick={() => setConfirmTakeover(true)}>
-                <Smartphone /> Assumir sessão
-              </Button>
-            </div>
-          ) : owner === 'panel' ? (
-            <Composer
-              sessionId={id}
-              cwd={entry?.cwd}
-              branch={git.status?.branch}
-              working={working || state === 'waiting'}
-              // Logo após retomar, enquanto o primeiro evento de ajustes não chega, vale o que foi escolhido.
-              settings={Object.keys(view.settings).length ? view.settings : pending}
-              context={context}
-              onChangeSettings={async (patch) => {
-                await api.settings(id, patch)
-              }}
-              onCompact={() => api.send(id, { text: '/compact' }).then(() => undefined)}
-              onSend={(text, attachments) => enqueue(id, text, attachments)}
-              onInterrupt={() => api.interrupt(id).then(() => undefined)}
-            />
-          ) : (
-            <Composer
-              sessionId={id}
-              cwd={entry?.cwd}
-              branch={git.status?.branch}
-              working={false}
-              hint="Enviar retoma esta conversa aqui pelo celular."
-              settings={pending}
-              context={null}
-              onChangeSettings={(patch) => setPending((p) => ({ ...p, ...patch }))}
-              onSend={(text, attachments) => enqueue(id, text, attachments, pending)}
-            />
-          )}
+            {owner === 'pc' ? (
+              <div
+                className={cn(
+                  'shrink-0 space-y-2 border-t px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]',
+                  glass && 'bg-background/70 backdrop-blur-md',
+                )}
+              >
+                <p className="text-xs text-muted-foreground">
+                  {state === 'idle'
+                    ? 'Aberta no PC e ociosa. Assumir encerra a sessão no PC e a continua aqui, com todo o contexto.'
+                    : 'Aberta no PC e ocupada. Dá para assumir quando ela ficar ociosa.'}
+                </p>
+                <Button className="h-11 w-full" disabled={busy || state !== 'idle'} onClick={() => setConfirmTakeover(true)}>
+                  <Smartphone /> Assumir sessão
+                </Button>
+              </div>
+            ) : owner === 'panel' ? (
+              <Composer
+                sessionId={id}
+                cwd={entry?.cwd}
+                branch={git.status?.branch}
+                working={working || state === 'waiting'}
+                // Logo após retomar, enquanto o primeiro evento de ajustes não chega, vale o que foi escolhido.
+                settings={Object.keys(view.settings).length ? view.settings : pending}
+                context={context}
+                onChangeSettings={async (patch) => {
+                  await api.settings(id, patch)
+                }}
+                onCompact={() => api.send(id, { text: '/compact' }).then(() => undefined)}
+                onSend={(text, attachments) => enqueue(id, text, attachments)}
+                onInterrupt={() => api.interrupt(id).then(() => undefined)}
+              />
+            ) : (
+              <Composer
+                sessionId={id}
+                cwd={entry?.cwd}
+                branch={git.status?.branch}
+                working={false}
+                hint="Enviar retoma esta conversa aqui pelo celular."
+                settings={pending}
+                context={null}
+                onChangeSettings={(patch) => setPending((p) => ({ ...p, ...patch }))}
+                onSend={(text, attachments) => enqueue(id, text, attachments, pending)}
+              />
+            )}
+          </div>
         </div>
 
         <SummarySheet sessionId={id} events={events} cwd={entry?.cwd} context={context} open={summaryOpen} onOpenChange={setSummaryOpen} />

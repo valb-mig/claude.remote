@@ -43,9 +43,9 @@ export const OPACITY: Record<Intensity, number> = { subtle: 0.3, medium: 0.55, s
  * fonte para saber quais gerar.
  */
 export const SCRIM: Record<Intensity, string> = {
-  subtle: 'bg-background/30',
-  medium: 'bg-background/50',
-  strong: 'bg-background/65',
+  subtle: 'bg-background/45',
+  medium: 'bg-background/65',
+  strong: 'bg-background/80',
 }
 
 export const INTENSITIES: { key: Intensity; label: string }[] = [
