@@ -46,6 +46,7 @@ import { ExplorerSheet } from '@/components/explorer'
 import { GitSheet } from '@/components/git-panel'
 import { MindMap } from '@/components/mindmap/mind-map'
 import { mindTree } from '@/components/mindmap/model'
+import { MapPane } from '@/components/mindmap/pane'
 import { useChatDisplay } from '@/components/mindmap/view'
 import { RepoLink } from '@/components/repo-link'
 import { SessionPicker } from '@/components/session-picker'
@@ -664,7 +665,9 @@ export function ChatPage({ id }: { id: string }) {
             pane.collapsed && 'hidden',
           )}
         >
-          <div className="relative min-w-0 flex-1" inert={shown === 'map'}>
+          {/* Só o mapa: o chat segue montado por baixo (o mapa pula para os pontos dele), mas some de
+              vista, senão apareceria através do mapa quando ele fica transparente sobre o fundo animado. */}
+          <div className={cn('relative min-w-0 flex-1', shown === 'map' && 'invisible')} inert={shown === 'map'}>
             {/* A lâmina de vidro embaixo da coluna de mensagens: desfoca a cena atrás do texto, e as
                 margens seguem nítidas. Fica fora do scroller de propósito — dentro dele, o desfoque
                 seria recalculado a cada quadro de rolagem em vez de só quando a cena muda. */}
@@ -744,7 +747,7 @@ export function ChatPage({ id }: { id: string }) {
             </div>
           </div>
           {mapRoot && (
-            <div className={shown === 'map' ? 'absolute inset-0 z-20' : 'relative w-[46%] shrink-0 border-l'}>
+            <MapPane beside={shown === 'both'}>
               <MindMap
                 root={mapRoot}
                 title={entry?.title ?? 'Conversa'}
@@ -753,7 +756,7 @@ export function ChatPage({ id }: { id: string }) {
                 onRequest={openRequest}
                 side={roomy ? { on: shown === 'both', toggle: () => setDisplay(shown === 'both' ? 'map' : 'both') } : null}
               />
-            </div>
+            </MapPane>
           )}
         </div>
 

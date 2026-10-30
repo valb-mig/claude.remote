@@ -34,6 +34,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { errorMessage } from '@/lib/api'
 import { useWidth } from '@/lib/hooks'
 import { cn } from '@/lib/utils'
+import { useScrim } from '@/lib/wallpaper'
 import { canShareImage, download, mapImage, type ImageFormat } from './export'
 import { branchColor, decisionPoints, edgeLook, edgePath, isLeaf, layout, type Box, type Mode } from './layout'
 import { focusOf, fold, type MindKind, type MindNode } from './model'
@@ -362,12 +363,15 @@ export function MindMap({
     }
   }
 
+  // Com fundo animado, o mapa deixa a cena aparecer atrás dele, sob o mesmo véu da coluna do chat.
+  const scrim = useScrim()
+
   const zoom = (by: number) => setZoom(clampZoom(scale + by))
   const nextMode = MODES[(MODES.findIndex((m) => m.mode === mode) + 1) % MODES.length]
   const ModeIcon = MODES.find((m) => m.mode === mode)!.icon
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col bg-background">
+    <div className={cn('relative flex h-full min-h-0 flex-col', scrim ? cn(scrim, 'backdrop-blur-[1.5px]') : 'bg-background')}>
       <div
         ref={scroller}
         onScroll={onScroll}
