@@ -11,8 +11,13 @@
 const FONT = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
 // Altura da célula em relação ao corpo da letra: o bastante para os traços não se encostarem.
 const LINE = 1.15
-// Os temas usam ASCII e um punhado de sinais do Latin-1; a tabela de códigos cabe nisso.
-const CODES = 1024
+// Teto de segurança da tabela de códigos: nenhum tema chega perto, e evita um charset estranho
+// pedir um array gigante.
+const MAX_CODE = 65536
+
+/** `#rrggbb` com alfa; o bloco é a mesma cor do glifo, só mais apagada. */
+const rgba = (hex: string, alpha: number): string =>
+  `rgba(${parseInt(hex.slice(1, 3), 16)},${parseInt(hex.slice(3, 5), 16)},${parseInt(hex.slice(5, 7), 16)},${alpha})`
 
 /** Cada par (caractere, cor) desenhado uma vez; pintar uma célula vira um blit deste canvas. */
 export class Atlas {
@@ -20,9 +25,13 @@ export class Atlas {
   readonly cellW: number
   readonly cellH: number
   /** Código do caractere → coluna no atlas; -1 no que o tema não declarou. */
-  private readonly column = new Int32Array(CODES).fill(-1)
+  private readonly column: Int32Array
 
-  constructor(chars: string, colors: string[], size: number, dpr: number) {
+  /** As cores do tema prontas para o bloco atrás do glifo, se o tema pedir um. */
+  readonly tiles: string[]
+
+  constructor(chars: string, colors: string[], size: number, dpr: number, tile = 0) {
+    this.tiles = tile > 0 ? colors.map((c) => rgba(c, tile)) : []
     const px = Math.max(5, Math.round(size * dpr))
     const probe = document.createElement('canvas').getContext('2d')!
     probe.font = `${px}px ${FONT}`
@@ -30,6 +39,8 @@ export class Atlas {
     this.cellH = Math.max(1, Math.round(px * LINE))
 
     const list = [...new Set(chars)]
+    // A tabela acompanha o tema: assim um caractere fora do ASCII entra no atlas em vez de sumir.
+    this.column = new Int32Array(Math.min(MAX_CODE, Math.max(128, ...list.map((c) => c.charCodeAt(0) + 1)))).fill(-1)
     this.canvas = document.createElement('canvas')
     this.canvas.width = list.length * this.cellW
     this.canvas.height = colors.length * this.cellH
@@ -40,7 +51,7 @@ export class Atlas {
     const baseline = Math.round(this.cellH * 0.8)
     list.forEach((ch, i) => {
       const code = ch.charCodeAt(0)
-      if (code < CODES) this.column[code] = i
+      if (code < this.column.length) this.column[code] = i
       colors.forEach((color, c) => {
         ctx.fillStyle = color
         ctx.fillText(ch, i * this.cellW + this.cellW / 2, c * this.cellH + baseline)
@@ -50,7 +61,7 @@ export class Atlas {
 
   /** Coluna do caractere no atlas, ou -1 se o tema não o declarou. */
   at(code: number): number {
-    return code < CODES ? this.column[code]! : -1
+    return code < this.column.length ? this.column[code]! : -1
   }
 }
 
@@ -94,7 +105,7 @@ export class Grid implements Paint {
   /** Repinta só o que mudou desde o quadro anterior, limpando de uma vez cada corrida de vizinhas. */
   paint(ctx: CanvasRenderingContext2D): void {
     const { cols, rows, cells, shown } = this
-    const { cellW, cellH, canvas } = this.atlas
+    const { cellW, cellH, canvas, tiles } = this.atlas
     for (let y = 0; y < rows; y++) {
       const base = y * cols
       let x = 0
@@ -110,7 +121,14 @@ export class Grid implements Paint {
           const v = cells[base + i]!
           shown[base + i] = v
           if (!v) continue
-          ctx.drawImage(canvas, ((v & 0xfff) - 1) * cellW, (v >>> 12) * cellH, cellW, cellH, i * cellW, y * cellH, cellW, cellH)
+          const color = v >>> 12
+          // Bloco atrás do glifo: sem ele, um caractere de pouca tinta (`.`, `·`, `-`) vira dois ou três
+          // pixels antialiasados e some. Com ele, a célula tem corpo e o glifo vira a textura dela.
+          if (tiles.length) {
+            ctx.fillStyle = tiles[color]!
+            ctx.fillRect(i * cellW, y * cellH, cellW, cellH)
+          }
+          ctx.drawImage(canvas, ((v & 0xfff) - 1) * cellW, color * cellH, cellW, cellH, i * cellW, y * cellH, cellW, cellH)
         }
       }
     }

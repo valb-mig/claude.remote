@@ -6,7 +6,25 @@ import { create } from 'zustand'
  * os sons), então fica no localStorage e não passa pelo servidor — o celular pode ter o aquário e o
  * PC ficar limpo.
  */
-export type ThemeId = 'none' | 'aquarium' | 'jellyfish' | 'fireflies'
+export type ThemeId =
+  | 'none'
+  | 'aquarium'
+  | 'jellyfish'
+  | 'fireflies'
+  | 'codigo'
+  | 'aurora'
+  | 'galaxia'
+  | 'luar'
+  | 'lareira'
+  | 'chuva'
+  | 'sakura'
+  | 'nuvens'
+  | 'lagoa'
+  | 'carpas'
+  | 'barquinhos'
+  | 'brasa'
+  | 'fliperama'
+  | 'som'
 export type Intensity = 'subtle' | 'medium' | 'strong'
 
 export type WallpaperPrefs = { theme: ThemeId; intensity: Intensity }
@@ -17,6 +35,18 @@ const DEFAULTS: WallpaperPrefs = { theme: 'none', intensity: 'medium' }
 
 /** Opacidade da camada inteira (degradê e caracteres); é o que separa "enfeite" de "atrapalha ler". */
 export const OPACITY: Record<Intensity, number> = { subtle: 0.3, medium: 0.55, strong: 0.85 }
+
+/**
+ * Véu por trás da coluna de mensagens, na cor do fundo da página: ele puxa a cena de volta para o
+ * fundo do app e devolve contraste ao texto. Acompanha a intensidade, senão no "sutil" escureceria
+ * mais do que a própria cena aparece. As classes ficam escritas por extenso porque o Tailwind lê o
+ * fonte para saber quais gerar.
+ */
+export const SCRIM: Record<Intensity, string> = {
+  subtle: 'bg-background/30',
+  medium: 'bg-background/50',
+  strong: 'bg-background/65',
+}
 
 export const INTENSITIES: { key: Intensity; label: string }[] = [
   { key: 'subtle', label: 'Sutil' },
@@ -44,6 +74,12 @@ export function useGlass(): boolean {
   const theme = useWallpaper((s) => s.theme)
   const [location] = useLocation()
   return theme !== 'none' && location.startsWith('/s/')
+}
+
+/** O véu da coluna de mensagens agora, ou vazio quando não há cena atrás. */
+export function useScrim(): string {
+  const intensity = useWallpaper((s) => s.intensity)
+  return useGlass() ? SCRIM[intensity] : ''
 }
 
 export function setWallpaper(next: Partial<WallpaperPrefs>): void {
