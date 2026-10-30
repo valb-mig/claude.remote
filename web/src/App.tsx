@@ -26,8 +26,10 @@ import { ChatSplit } from '@/pages/split'
 export default function App() {
   const [location, navigate] = useLocation()
   const wide = useWide()
-  // Modo zen: só na conversa, que é a única tela que faz sentido ficar sozinha (ver lib/zen.ts).
-  const zen = useZen((s) => s.on) && location.startsWith('/s/')
+  // Modo zen: vale enquanto a conversa em que ele foi ligado estiver na tela (ver lib/zen.ts).
+  const zenId = useZen((s) => s.id)
+  const open = useSplit().ids
+  const zen = zenId !== null && open.includes(zenId)
 
   useEffect(() => {
     // Outras máquinas suas com o Claude Remote (ver lib/machines.ts); a lista guardada vale até a resposta.
