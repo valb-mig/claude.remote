@@ -1,16 +1,13 @@
 import { aquarium } from './aquarium'
 import { aurora } from './aurora'
 import { barquinhos } from './barquinhos'
-import { brasa } from './brasa'
 import { carpas } from './carpas'
 import { chuva } from './chuva'
 import { codigo } from './codigo'
 import { fireflies } from './fireflies'
-import { fliperama } from './fliperama'
 import { galaxia } from './galaxia'
 import { jellyfish } from './jellyfish'
 import { lagoa } from './lagoa'
-import { lareira } from './lareira'
 import { luar } from './luar'
 import { nuvens } from './nuvens'
 import { sakura } from './sakura'
@@ -34,10 +31,7 @@ export const THEMES: Theme[] = [
   fireflies,
   sakura,
   chuva,
-  lareira,
-  brasa,
   codigo,
-  fliperama,
   som,
 ]
 

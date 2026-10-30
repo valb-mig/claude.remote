@@ -6,25 +6,25 @@ import { create } from 'zustand'
  * os sons), então fica no localStorage e não passa pelo servidor — o celular pode ter o aquário e o
  * PC ficar limpo.
  */
-export type ThemeId =
-  | 'none'
-  | 'aquarium'
-  | 'jellyfish'
-  | 'fireflies'
-  | 'codigo'
-  | 'aurora'
-  | 'galaxia'
-  | 'luar'
-  | 'lareira'
-  | 'chuva'
-  | 'sakura'
-  | 'nuvens'
-  | 'lagoa'
-  | 'carpas'
-  | 'barquinhos'
-  | 'brasa'
-  | 'fliperama'
-  | 'som'
+// Os temas que existem; o salvo de um que saiu do app (ver `load`) não vale mais.
+const THEME_IDS = [
+  'none',
+  'aquarium',
+  'jellyfish',
+  'fireflies',
+  'codigo',
+  'aurora',
+  'galaxia',
+  'luar',
+  'chuva',
+  'sakura',
+  'nuvens',
+  'lagoa',
+  'carpas',
+  'barquinhos',
+  'som',
+] as const
+export type ThemeId = (typeof THEME_IDS)[number]
 export type Intensity = 'subtle' | 'medium' | 'strong'
 
 export type WallpaperPrefs = { theme: ThemeId; intensity: Intensity }
@@ -56,7 +56,9 @@ export const INTENSITIES: { key: Intensity; label: string }[] = [
 
 function load(): WallpaperPrefs {
   try {
-    return { ...DEFAULTS, ...(JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<WallpaperPrefs>) }
+    const saved = { ...DEFAULTS, ...(JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<WallpaperPrefs>) }
+    // Tema que saiu do app: volta ao sem fundo, senão o vidro ficava ligado sem nada atrás.
+    return (THEME_IDS as readonly string[]).includes(saved.theme) ? saved : { ...saved, theme: 'none' }
   } catch {
     return DEFAULTS
   }
