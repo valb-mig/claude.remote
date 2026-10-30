@@ -132,6 +132,9 @@ export function ChatSplit() {
   const split = shown.length > 1
   const stacked = useMediaQuery(STACKED)
   // Em pé, digitando numa conversa: a outra encolhe até o cabeçalho, para o teclado não espremer as duas.
+  // Só no toque, onde o teclado aparece na tela: numa janela estreita do PC não há o que espremer, e
+  // quem quiser mais espaço para uma usa a divisória.
+  const touch = useMediaQuery('(pointer: coarse)')
   const [typing, setTyping] = useState<string | null>(null)
   const weights = useSplitSizes((s) => s.weights)
   // O peso salvo é relativo; aqui ele é reescalado para os das conversas na tela somarem quantas elas
@@ -157,7 +160,7 @@ export function ChatSplit() {
       {/* Uma cena só atrás de todas as conversas: lado a lado, o fundo atravessa a divisória em vez de recomeçar. */}
       <Wallpaper />
       {shown.map((id, i) => {
-        const collapsed = split && stacked && typing !== null && typing !== id
+        const collapsed = split && stacked && touch && typing !== null && typing !== id
         const offstage = zen !== null && zen !== id
         return (
           <Fragment key={id}>
