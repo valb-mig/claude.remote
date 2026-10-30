@@ -29,7 +29,18 @@ export type Reading = {
 }
 
 // Leitura automática (o alto-falante no topo do chat) e velocidade: valem para todas as conversas e ficam salvas.
-const AUTO_KEY = 'cr:speech-auto'
+// Quais conversas leem as respostas sozinhas. Antes era uma chave para todas; com conversas lado a
+// lado, ligar numa passava a ler as duas.
+const AUTO_KEY = 'cr:speech-auto-chats'
+
+function savedAuto(): string[] {
+  try {
+    const raw = JSON.parse(saved(AUTO_KEY) ?? '[]') as unknown
+    return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
 const RATE_KEY = 'cr:speech-rate'
 
 /** Velocidades da barra de leitura, na ordem em que o botão passa por elas. */
@@ -51,10 +62,10 @@ function save(key: string, value: string): void {
   }
 }
 
-/** Leitura atual (uma por vez no app inteiro), se as respostas novas são lidas sozinhas e a velocidade da voz. */
-export const useSpeech = create<{ reading: Reading | null; auto: boolean; rate: number }>(() => ({
+/** Leitura atual (uma por vez no app inteiro), as conversas que leem as respostas novas sozinhas e a velocidade da voz. */
+export const useSpeech = create<{ reading: Reading | null; auto: string[]; rate: number }>(() => ({
   reading: null,
-  auto: speechSupported && saved(AUTO_KEY) === '1',
+  auto: speechSupported ? savedAuto() : [],
   rate: SPEEDS.find((r) => String(r) === saved(RATE_KEY)) ?? 1,
 }))
 
@@ -299,17 +310,19 @@ export function toggleSpeech(key: string, markdown: string): void {
 }
 
 /** Leitura automática: lê a resposta que acabou de chegar; com outra tocando ou pausada, entra na fila. */
-export function speakNew(key: string, markdown: string): void {
-  if (!synth || !useSpeech.getState().auto) return
+export function speakNew(sessionId: string, key: string, markdown: string): void {
+  if (!synth || !useSpeech.getState().auto.includes(sessionId)) return
   if (useSpeech.getState().reading) queue.push({ key, markdown })
   else start(key, markdown)
 }
 
-/** Liga ou desliga a leitura automática; desligar também cala o que estiver tocando. */
-export function setAutoSpeech(on: boolean): void {
-  save(AUTO_KEY, on ? '1' : '0')
-  useSpeech.setState({ auto: on })
-  if (!on) stopSpeaking()
+/** Liga ou desliga a leitura automática de uma conversa; desligar cala só o que for dela — a do lado segue. */
+export function setAutoSpeech(sessionId: string, on: boolean): void {
+  const rest = useSpeech.getState().auto.filter((id) => id !== sessionId)
+  const auto = on ? [...rest, sessionId] : rest
+  save(AUTO_KEY, JSON.stringify(auto))
+  useSpeech.setState({ auto })
+  if (!on) stopSpeakingIn(sessionId)
 }
 
 /** Troca a velocidade da voz; tocando, a frase atual recomeça já nela (a fala não muda de ritmo no meio). */

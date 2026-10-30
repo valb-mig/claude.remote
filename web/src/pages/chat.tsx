@@ -82,7 +82,7 @@ import { enqueue, useOutbox } from '@/lib/outbox'
 import { clearNotifications } from '@/lib/push'
 import { setAutoSpeech, speakNew, speechSupported, useSpeech } from '@/lib/speech'
 import { useMachine, useMachines } from '@/lib/machines'
-import { closeChat, openBeside, swapChat, usePane, useSplit } from '@/lib/split'
+import { CHAT_DRAG, closeChat, openBeside, swapChat, useDraggingChat, usePane, useSplit } from '@/lib/split'
 import { onLiveEvent, selectView, subscribe, unsubscribe, useStore } from '@/lib/store'
 import type { ContextUsage, LoggedEvent, RunOptions } from '@/lib/types'
 import { backHref } from '@/lib/tabs'
@@ -291,11 +291,11 @@ export function ChatPage({ id }: { id: string }) {
   }, [rekeyed, id])
 
   // Leitura automática (o alto-falante no topo): as respostas que chegam ao vivo, nunca o histórico.
-  const autoSpeech = useSpeech((s) => s.auto)
+  const autoSpeech = useSpeech((s) => s.auto.includes(id))
   useEffect(
     () =>
       onLiveEvent((sessionId, runId, e) => {
-        if (sessionId === id && e.kind === 'assistant' && !e.parentToolUseId) speakNew(`${id}:${liveKey(runId, e.seq)}`, e.text)
+        if (sessionId === id && e.kind === 'assistant' && !e.parentToolUseId) speakNew(id, `${id}:${liveKey(runId, e.seq)}`, e.text)
       }),
     [id],
   )
@@ -350,12 +350,12 @@ export function ChatPage({ id }: { id: string }) {
   const branched = useRef<string | null>(null)
   const glass = useGlass()
   const scrim = useScrim()
-  const zen = useZen((s) => s.on)
+  const zen = useZen((s) => s.id === id)
   // Esc no PC e o voltar do celular saem do zen antes de sair da conversa.
-  useBackToClose(zen, () => setZen(false))
+  useBackToClose(zen, () => setZen(null))
   useEffect(() => {
     if (!zen) return
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setZen(false)
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setZen(null)
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [zen])
@@ -454,9 +454,18 @@ export function ChatPage({ id }: { id: string }) {
     <AgentsContext value={agentsContext}>
       <div className="flex min-h-0 flex-1 flex-col">
         <header
+          // Lado a lado, o topo é a alça: arrastar por ele leva a conversa para outro lugar da tela.
+          draggable={pane.split}
+          onDragStart={(e) => {
+            e.dataTransfer.setData(CHAT_DRAG, id)
+            e.dataTransfer.effectAllowed = 'move'
+            useDraggingChat.setState({ id })
+          }}
+          onDragEnd={() => useDraggingChat.setState({ id: null })}
           className={cn(
             'flex shrink-0 items-center gap-1 border-b bg-background px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 compact:py-1',
             zen && 'hidden',
+            pane.split && 'cursor-grab active:cursor-grabbing',
             // Lado a lado: a conversa em foco (a que recebe o que é escolhido na lista) ganha uma faixa no topo.
             pane.split && pane.focused && 'shadow-[inset_0_2px_0_var(--color-primary)]',
           )}
@@ -503,7 +512,7 @@ export function ChatPage({ id }: { id: string }) {
               size="icon"
               className={cn(autoSpeech && 'rounded-full')}
               onClick={() => {
-                setAutoSpeech(!autoSpeech)
+                setAutoSpeech(id, !autoSpeech)
                 if (autoSpeech) toast('Leitura automática desligada')
                 else toast('Leitura automática ligada', { description: 'As respostas novas do Claude serão lidas em voz alta.' })
               }}
@@ -513,7 +522,7 @@ export function ChatPage({ id }: { id: string }) {
               {autoSpeech ? <Volume2 /> : <VolumeOff />}
             </Button>
           )}
-          <Button variant="ghost" size="icon" onClick={() => setZen(true)} aria-label="Modo zen: só a conversa na tela" title="Modo zen">
+          <Button variant="ghost" size="icon" onClick={() => setZen(id)} aria-label="Modo zen: só esta conversa na tela" title="Modo zen">
             <Minimize2 />
           </Button>
           <Button
@@ -690,7 +699,7 @@ export function ChatPage({ id }: { id: string }) {
               <Button
                 variant="secondary"
                 size="icon"
-                onClick={() => setZen(false)}
+                onClick={() => setZen(null)}
                 aria-label="Sair do modo zen"
                 title="Sair do modo zen"
                 className="absolute top-[max(0.75rem,env(safe-area-inset-top))] right-3 z-20 size-9 rounded-full border opacity-30 shadow-lg transition-opacity hover:opacity-100 focus-visible:opacity-100"

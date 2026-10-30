@@ -1,27 +1,29 @@
 import { create } from 'zustand'
 
 /**
- * Modo zen: a conversa sozinha na tela, sem a alça, sem a lista e sem o cabeçalho — só as mensagens
- * e a caixa de escrever. Vale só na tela da conversa, e a escolha fica salva neste aparelho, como a
- * lista recolhida (ver lib/sidebar.ts).
+ * Modo zen: uma conversa sozinha na tela, sem a alça, a lista e o cabeçalho — só as mensagens e a caixa
+ * de escrever. É da conversa em que ele foi ligado: com outras lado a lado, elas saem de vista (sem
+ * fechar, nem perder o que estava escrito) até ele desligar. Fica salvo neste aparelho.
  */
-const KEY = 'cr:zen'
+const KEY = 'cr:zen-chat'
 
-function saved(): boolean {
+function saved(): string | null {
   try {
-    return localStorage.getItem(KEY) === '1'
+    return localStorage.getItem(KEY) || null
   } catch {
-    return false
+    return null
   }
 }
 
-export const useZen = create<{ on: boolean }>(() => ({ on: saved() }))
+/** `id`: a conversa em modo zen, ou nenhuma. */
+export const useZen = create<{ id: string | null }>(() => ({ id: saved() }))
 
-export function setZen(on: boolean): void {
+export function setZen(id: string | null): void {
   try {
-    localStorage.setItem(KEY, on ? '1' : '0')
+    if (id) localStorage.setItem(KEY, id)
+    else localStorage.removeItem(KEY)
   } catch {
     // localStorage indisponível (modo privado): vale só nesta tela.
   }
-  useZen.setState({ on })
+  useZen.setState({ id })
 }

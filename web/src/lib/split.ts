@@ -68,6 +68,58 @@ export function closeChat(id: string, replace = false): void {
   go(rest, replace)
 }
 
+/**
+ * Leva a conversa `id` para antes ou depois de `target`, arrastando pelo topo dela. Troca a URL sem
+ * criar entrada no histórico: arrumar a tela não é um passo que o voltar deva desfazer.
+ */
+export function moveChat(id: string, target: string, after: boolean): void {
+  const ids = current()
+  if (id === target || !ids.includes(id) || !ids.includes(target)) return
+  const rest = ids.filter((x) => x !== id)
+  const at = rest.indexOf(target) + (after ? 1 : 0)
+  go([...rest.slice(0, at), id, ...rest.slice(at)], true)
+}
+
+/** Tipo do arrasto de uma conversa pelo topo; só ele é aceito como soltura entre os painéis. */
+export const CHAT_DRAG = 'application/x-claude-remote-chat'
+
+/** A conversa sendo arrastada pelo topo, para as outras saberem mostrar onde ela vai cair. */
+export const useDraggingChat = create<{ id: string | null }>(() => ({ id: null }))
+
+// ---- tamanho de cada conversa lado a lado ----
+
+/**
+ * Quanto cada conversa ocupa, em peso relativo (1 é a parte igual). Arrastar a divisória passa peso
+ * de uma para a vizinha. Fica salvo só das conversas abertas, para a lista não crescer para sempre.
+ */
+const SIZES_KEY = 'cr:split-sizes'
+
+function savedSizes(): Record<string, number> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SIZES_KEY) ?? '{}') as Record<string, unknown>
+    return Object.fromEntries(Object.entries(raw).filter((e): e is [string, number] => typeof e[1] === 'number' && e[1] > 0))
+  } catch {
+    return {}
+  }
+}
+
+export const useSplitSizes = create<{ weights: Record<string, number> }>(() => ({ weights: savedSizes() }))
+
+export function setSplitWeights(patch: Record<string, number>): void {
+  useSplitSizes.setState((s) => ({ weights: { ...s.weights, ...patch } }))
+}
+
+/** Grava os tamanhos no fim do arrasto, não a cada movimento do mouse. */
+export function saveSplitSizes(): void {
+  const open = new Set(current())
+  const weights = Object.fromEntries(Object.entries(useSplitSizes.getState().weights).filter(([id]) => open.has(id)))
+  try {
+    localStorage.setItem(SIZES_KEY, JSON.stringify(weights))
+  } catch {
+    // localStorage indisponível (modo privado): vale só até fechar o app.
+  }
+}
+
 // ---- leitura para a tela ----
 
 /** Quantas conversas cabem lado a lado: até 2 no celular; no PC, conforme a largura (até 4). */
