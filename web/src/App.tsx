@@ -9,6 +9,7 @@ import { useZen } from '@/lib/zen'
 import { useSplit } from '@/lib/split'
 import { startOutbox } from '@/lib/outbox'
 import { startSounds } from '@/lib/sounds'
+import { startTitle } from '@/lib/title'
 import { syncPush } from '@/lib/push'
 import { connect } from '@/lib/store'
 import { watchUpdates } from '@/lib/update'
@@ -39,6 +40,7 @@ export default function App() {
     connect()
     startOutbox()
     startSounds()
+    startTitle()
     watchUpdates()
     void syncPush().catch(() => {})
     return () => clearInterval(machines)
