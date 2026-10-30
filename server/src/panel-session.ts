@@ -136,6 +136,12 @@ export class PanelSession extends EventEmitter {
   private readonly openTools = new Map<string, OpenTool>();
   /** Nome e tipo de cada subagente, pela chamada da ferramenta Agent que o criou. */
   private readonly agentCalls = new Map<string, { name: string; type: string }>();
+  /**
+   * O modelo escolhido no painel, como ele veio da lista ("opus", "default"…). O init de cada
+   * turno traz o id resolvido no lugar dele, e sem guardar a escolha "Opus 5.5" viraria "Padrão"
+   * na barra: os dois apontam para o mesmo modelo, e o painel acha o padrão primeiro.
+   */
+  private chosenModel?: string;
   /** Última ferramenta de cada um, eventos recentes e tarefas, para a salinha. */
   private readonly officeLog = new OfficeLog();
   private compacting = false;
@@ -190,6 +196,7 @@ export class PanelSession extends EventEmitter {
     if (opts.model || opts.effort || opts.permissionMode) {
       this.updateSettings({ model: opts.model, effort: opts.effort ?? null, permissionMode: opts.permissionMode });
     }
+    this.chosenModel = opts.model;
     this.exited = this.pump();
   }
 
@@ -208,7 +215,21 @@ export class PanelSession extends EventEmitter {
 
   async setModel(model: string): Promise<void> {
     await this.q.setModel(model);
+    this.chosenModel = model;
     this.updateSettings({ model });
+  }
+
+  /** Para que id um valor da lista aponta ("opus" → "claude-opus-5-5"); o próprio valor, se não souber. */
+  private async resolvedModel(value: string): Promise<string> {
+    const list = await this.models().catch(() => []);
+    return list.find((m) => m.value === value)?.resolvedModel ?? value;
+  }
+
+  /** Ajustes que o init do turno traz, com o modelo escolhido aqui mantido (ver `chosenModel`). */
+  private async settingsFromInit(model: string, effort: string | null, permissionMode: string): Promise<void> {
+    const chosen = this.chosenModel;
+    const keep = chosen !== undefined && (await this.resolvedModel(chosen)) === model;
+    this.updateSettings({ model: keep ? chosen : model, effort, permissionMode });
   }
 
   async setEffort(effort: EffortLevel): Promise<void> {
@@ -434,7 +455,7 @@ export class PanelSession extends EventEmitter {
         this.emit('rekey', from, this.id);
       }
       // O init nem sempre traz o esforço; sem ele, vale o último escolhido.
-      this.updateSettings({ model: msg.model, effort: msg.effort ?? this.settings.effort ?? null, permissionMode: msg.permissionMode });
+      void this.settingsFromInit(msg.model, msg.effort ?? this.settings.effort ?? null, msg.permissionMode);
     }
     // O modo muda sozinho, por exemplo ao aprovar a saída do modo de plano.
     if (msg.type === 'system' && msg.subtype === 'status' && msg.permissionMode) {
