@@ -1,6 +1,7 @@
 import { FolderGit2, House, Loader2, MessagesSquare, Monitor } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'wouter'
+import { setComputerOpen } from '@/lib/computer'
 import { useStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
 
@@ -8,10 +9,13 @@ const TABS = [
   { href: '/', label: 'Início', icon: House },
   { href: '/conversas', label: 'Conversas', icon: MessagesSquare },
   { href: '/projetos', label: 'Projetos', icon: FolderGit2 },
-  { href: '/computador', label: 'Computador', icon: Monitor },
 ]
+const tabClass = 'relative flex h-14 flex-col items-center justify-center gap-0.5 text-[11px]'
 
-/** Abas embaixo da tela; no celular deitado, uma coluna na lateral para sobrar altura. */
+/**
+ * Abas embaixo da tela; no celular deitado, uma coluna na lateral para sobrar altura. A última,
+ * Computador, abre o painel por cima em vez de trocar de tela (ver lib/computer.ts).
+ */
 export function BottomNav() {
   const [location] = useLocation()
   const attention = useStore((s) => s.catalog.reduce((n, c) => n + (c.state === 'waiting' ? 1 : 0), 0))
@@ -28,10 +32,7 @@ export function BottomNav() {
           <Link
             key={href}
             href={href}
-            className={cn(
-              'relative flex h-14 flex-col items-center justify-center gap-0.5 text-[11px]',
-              active ? 'font-medium text-foreground' : 'text-muted-foreground',
-            )}
+            className={cn(tabClass, active ? 'font-medium text-foreground' : 'text-muted-foreground')}
           >
             <Icon className="size-5" />
             {label}
@@ -43,6 +44,10 @@ export function BottomNav() {
           </Link>
         )
       })}
+      <button type="button" onClick={() => setComputerOpen(true)} className={cn(tabClass, 'text-muted-foreground')}>
+        <Monitor className="size-5" />
+        Computador
+      </button>
     </nav>
   )
 }

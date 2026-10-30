@@ -1,7 +1,8 @@
-import { Armchair, FolderGit2, House, MessagesSquare, Monitor, OctagonAlert, PanelLeftClose, PanelLeftOpen, Plus, TriangleAlert } from 'lucide-react'
+import { FolderGit2, House, Monitor, OctagonAlert, PanelLeftClose, PanelLeftOpen, Plus, TriangleAlert } from 'lucide-react'
 import { Link, useLocation } from 'wouter'
 import { severityOf } from '@/components/pc-status'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { setComputerOpen, useComputer } from '@/lib/computer'
 import { bytes, resetTime, shortDuration } from '@/lib/format'
 import { HOME, useMachineFilter, useMachines } from '@/lib/machines'
 import { setSidebarCollapsed, useSidebar } from '@/lib/sidebar'
@@ -46,8 +47,9 @@ function Ring({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Link
-          href="/computador"
+        <button
+          type="button"
+          onClick={() => setComputerOpen(true)}
           aria-label={tip}
           className="flex w-14 flex-col items-center gap-0.5 rounded-lg py-1 hover:bg-muted/60"
         >
@@ -78,7 +80,7 @@ function Ring({
             )}
             {label}
           </span>
-        </Link>
+        </button>
       </TooltipTrigger>
       <TooltipContent side="right">{tip}</TooltipContent>
     </Tooltip>
@@ -140,7 +142,8 @@ function RailItem({
 
 /**
  * Alça do PC, sempre à esquerda: as abas e, embaixo, CPU, memória e os limites do Claude em anéis.
- * O botão do topo e Sessões abrem e recolhem a lista de conversas ao lado, como na barra do VS Code.
+ * O botão do topo abre e recolhe a lista de conversas ao lado, como na barra do VS Code, e leva o
+ * contador das que precisam de você.
  */
 export function SidebarRail() {
   const [location] = useLocation()
@@ -152,6 +155,7 @@ export function SidebarRail() {
   const name = useMachines((s) => (s.machines.length > 1 ? s.machines.find((m) => m.id === machine)?.name : undefined))
   const of = (text: string) => (name ? `${name} · ${text}` : text)
   const collapsed = useSidebar((s) => s.collapsed)
+  const computer = useComputer((s) => s.open)
   const toggle = () => setSidebarCollapsed(!collapsed)
   const coding = useWakatimeToday(machine)
   const plan = usage?.plan?.available ? usage.plan : null
@@ -160,7 +164,14 @@ export function SidebarRail() {
   return (
     <TooltipProvider delayDuration={200}>
       <aside className="flex w-16 shrink-0 flex-col items-center gap-1 border-r py-3">
-        <RailItem label={collapsed ? 'Abrir a lista de conversas' : 'Recolher a lista de conversas'} onClick={toggle}>
+        <RailItem
+          label={
+            (collapsed ? 'Abrir a lista de conversas' : 'Recolher a lista de conversas') +
+            (attention ? ` · ${attention} ${attention === 1 ? 'precisa' : 'precisam'} de você` : '')
+          }
+          onClick={toggle}
+          badge={attention}
+        >
           {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
         </RailItem>
         <RailItem label="Nova conversa" href="/nova" active={location === '/nova'}>
@@ -170,23 +181,12 @@ export function SidebarRail() {
         <RailItem label="Início" href="/" active={location === '/'}>
           <House />
         </RailItem>
-        <RailItem
-          label={attention ? `Sessões: ${attention} ${attention === 1 ? 'precisa' : 'precisam'} de você` : 'Sessões'}
-          onClick={toggle}
-          // Marcada enquanto a lista de conversas está aberta ao lado.
-          active={!collapsed}
-          badge={attention}
-        >
-          <MessagesSquare />
-        </RailItem>
         <RailItem label="Projetos" href="/projetos" active={location.startsWith('/projetos')}>
           <FolderGit2 />
         </RailItem>
-        <RailItem label="Computador" href="/computador" active={location.startsWith('/computador')}>
+        {/* Abre por cima, sem tirar você da conversa (ver lib/computer.ts). */}
+        <RailItem label="Computador" onClick={() => setComputerOpen(true)} active={computer}>
           <Monitor />
-        </RailItem>
-        <RailItem label="Salinha: seus claudinhos trabalhando" href="/salinha">
-          <Armchair />
         </RailItem>
 
         <div className="mt-auto flex flex-col items-center gap-1.5">

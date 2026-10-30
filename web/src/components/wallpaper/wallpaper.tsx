@@ -157,7 +157,7 @@ export function Scene({
   )
 }
 
-/** O fundo da conversa, com o tema e a força escolhidos na página Computador. */
+/** O fundo da conversa, com o tema e a força escolhidos no painel Computador. */
 export function Wallpaper() {
   const theme = useWallpaper((s) => s.theme)
   const intensity = useWallpaper((s) => s.intensity)
