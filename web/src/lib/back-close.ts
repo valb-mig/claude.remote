@@ -45,7 +45,8 @@ window.addEventListener('popstate', () => {
 })
 
 /** Registra a camada enquanto `open`; voltar chama `close`. */
-function useBackToClose(open: boolean, close: () => void) {
+/** O voltar do celular fecha esta camada em vez de sair da tela. */
+export function useBackToClose(open: boolean, close: () => void) {
   const latest = useRef(close)
   useEffect(() => {
     latest.current = close

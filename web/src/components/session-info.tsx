@@ -1,4 +1,4 @@
-import { Bot, Hourglass, Monitor, Pin, Server, Smartphone } from 'lucide-react'
+import { Bot, GitFork, Hourglass, Monitor, Pin, Server, Smartphone } from 'lucide-react'
 import { StateBadge } from '@/components/state-badge'
 import { projectName, relativeTime } from '@/lib/format'
 import { HOME, useMachines } from '@/lib/machines'
@@ -15,6 +15,7 @@ export function SessionInfo({ s }: { s: CatalogEntry }) {
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 text-sm font-medium">
           {s.pinned && <Pin className="size-3.5 shrink-0 text-muted-foreground" aria-label="Fixada" />}
+          {s.forkedFrom && <GitFork className="size-3.5 shrink-0 text-muted-foreground" aria-label="Bifurcada de outra conversa" />}
           <span className="truncate">{s.title}</span>
         </div>
         <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">

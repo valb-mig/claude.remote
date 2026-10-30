@@ -11,6 +11,12 @@ export type Look = {
   backdrop: string
   /** Lado do caractere em pixels de CSS. */
   size: number
+  /**
+   * Opacidade do bloco pintado atrás de cada glifo, na cor dele. Zero (o padrão) deixa só o
+   * caractere, que é o certo para cenas de traço; cenas de massa (água, nuvem, chama) precisam do
+   * bloco, senão os caracteres de pouca tinta somem.
+   */
+  tile?: number
 }
 
 /** Um passo de animação: `dt` em segundos desde o anterior, `t` o tempo desde que a cena nasceu. */
@@ -23,6 +29,12 @@ export type Theme = {
   /** Cada modo tem o seu: no claro o fundo precisa ser claro, senão o texto da conversa some. */
   look(dark: boolean): Look
   create(cols: number, rows: number, dark: boolean): Step
+  /**
+   * Liga o tema a uma fonte de fora enquanto ele desenha, devolvendo como desligar. O tema de som
+   * usa isto para pedir o espectro ao PC só enquanto está mesmo aparecendo — fora da tela ou com o
+   * app em segundo plano o laço para, e a captura no PC para junto.
+   */
+  attach?: () => () => void
 }
 
 /**
@@ -71,3 +83,38 @@ export function stamp(p: Paint, s: Sprite, x: number, y: number, seed: number, t
     }
   }
 }
+
+/**
+ * Um bicho com mais de uma máscara: a cadência troca o quadro, que é o que dá remada de tartaruga e
+ * coleio de carpa num motor que carimba máscaras rígidas e não sabe girar nada.
+ */
+export type Motion = { frames: Sprite[]; fps: number }
+
+export const motion = (frames: string[][], fps = 4): Motion => ({ frames: frames.map(sprite), fps })
+
+export const frameAt = (m: Motion, t: number, offset = 0): Sprite => {
+  const n = m.frames.length
+  return m.frames[(((Math.floor(t * m.fps + offset) % n) + n) % n)]!
+}
+
+/** Valor 0..1 → caractere de uma rampa de densidade; 0 ou menos não desenha nada. */
+export const rampChar = (ramp: string, v: number): string => (v <= 0 ? '' : ramp[Math.min(ramp.length - 1, (v * ramp.length) | 0)]!)
+
+/**
+ * Ruído suave: interpola entre os quatro cantos da célula inteira, então vizinhos se parecem. Nuvem,
+ * chama e aurora pedem manchas; o `noise` cru daria chuvisco.
+ */
+export function smoothNoise(x: number, y: number, seed = 0): number {
+  const xi = Math.floor(x)
+  const yi = Math.floor(y)
+  const u = (x - xi) * (x - xi) * (3 - 2 * (x - xi))
+  const v = (y - yi) * (y - yi) * (3 - 2 * (y - yi))
+  const a = noise(xi, yi, seed)
+  const b = noise(xi + 1, yi, seed)
+  const c = noise(xi, yi + 1, seed)
+  const d = noise(xi + 1, yi + 1, seed)
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v
+}
+
+/** Duas oitavas de ruído suave: a larga dá a forma, a fina dá a borda esgarçada. */
+export const clouds = (x: number, y: number, seed = 0): number => smoothNoise(x, y, seed) * 0.65 + smoothNoise(x * 2.3, y * 2.3, seed + 1) * 0.35

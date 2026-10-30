@@ -57,13 +57,13 @@ export function Scene({
         return
       }
       let px = look.size * zoom
-      let atlas = new Atlas(look.chars, look.palette, px, dpr)
+      let atlas = new Atlas(look.chars, look.palette, px, dpr, look.tile)
       // Uma coluna e uma linha a mais do que cabe: a sobra fica fora do recorte, sem faixa vazia.
       let cols = Math.ceil((w * dpr) / atlas.cellW)
       let rows = Math.ceil((h * dpr) / atlas.cellH)
       for (let guard = 0; cols * rows > MAX_CELLS && guard < 4; guard++) {
         px *= Math.sqrt((cols * rows) / MAX_CELLS)
-        atlas = new Atlas(look.chars, look.palette, px, dpr)
+        atlas = new Atlas(look.chars, look.palette, px, dpr, look.tile)
         cols = Math.ceil((w * dpr) / atlas.cellW)
         rows = Math.ceil((h * dpr) / atlas.cellH)
       }
@@ -100,14 +100,21 @@ export function Scene({
       draw(dt)
     }
 
+    // A fonte externa do tema (ver `Theme.attach`) segue o laço: liga quando ele liga e desliga
+    // junto, para nada ficar sendo capturado no PC com a cena parada.
+    let detach: (() => void) | undefined
+
     const start = () => {
       if (raf || still || !onScreen || !awake) return
+      detach ??= theme.attach?.()
       last = performance.now()
       drawn = 0
       raf = requestAnimationFrame(frame)
     }
 
     const stop = () => {
+      detach?.()
+      detach = undefined
       if (!raf) return
       cancelAnimationFrame(raf)
       raf = 0

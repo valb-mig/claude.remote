@@ -5,6 +5,7 @@ import { SidebarRail } from '@/components/sidebar-rail'
 import { useWide } from '@/lib/hooks'
 import { loadMachines } from '@/lib/machines'
 import { useSidebar } from '@/lib/sidebar'
+import { useZen } from '@/lib/zen'
 import { useSplit } from '@/lib/split'
 import { startOutbox } from '@/lib/outbox'
 import { startSounds } from '@/lib/sounds'
@@ -25,6 +26,8 @@ import { ChatSplit } from '@/pages/split'
 export default function App() {
   const [location, navigate] = useLocation()
   const wide = useWide()
+  // Modo zen: só na conversa, que é a única tela que faz sentido ficar sozinha (ver lib/zen.ts).
+  const zen = useZen((s) => s.on) && location.startsWith('/s/')
 
   useEffect(() => {
     // Outras máquinas suas com o Claude Remote (ver lib/machines.ts); a lista guardada vale até a resposta.
@@ -61,7 +64,7 @@ export default function App() {
   return (
     // Na horizontal, o entalhe da câmera fica num dos lados.
     <div className="flex h-dvh bg-background pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
-      {wide && <Sidebar />}
+      {wide && !zen && <Sidebar />}
       <div className={cn('flex min-w-0 flex-1 flex-col', !wide && 'mx-auto max-w-2xl compact:max-w-none')}>
         <ConnectionBanner />
         <Switch>

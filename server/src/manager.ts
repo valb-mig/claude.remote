@@ -45,6 +45,8 @@ export type CatalogEntry = {
   state: CatalogState;
   waitingFor?: string;
   pcKind?: 'interactive' | 'background';
+  /** De onde esta conversa bifurcou, para a lista e o cabeçalho marcarem. */
+  forkedFrom?: { sessionId: string; title?: string };
   /** Aprovações e perguntas aguardando resposta (só sessões do painel). */
   pending?: { requestId: string; kind: 'approval' | 'question' }[];
   /** Subagentes trabalhando agora (só sessões do painel). */
@@ -165,7 +167,11 @@ export class Manager extends EventEmitter {
       byId.set(s.id, entry);
     }
 
-    for (const entry of byId.values()) if (this.meta.isPinned(entry.sessionId)) entry.pinned = true;
+    for (const entry of byId.values()) {
+      if (this.meta.isPinned(entry.sessionId)) entry.pinned = true;
+      const fork = this.meta.forkOf(entry.sessionId);
+      if (fork) entry.forkedFrom = { sessionId: fork.from, title: byId.get(fork.from)?.title };
+    }
     return [...byId.values()].sort((a, b) => b.lastModified - a.lastModified);
   }
 
@@ -191,11 +197,26 @@ export class Manager extends EventEmitter {
    * Histórico salvo. Com a sessão aberta no painel, só o que existia antes do processo:
    * o restante o cliente recebe pelo log de eventos, sem duplicar.
    */
+  /** As mensagens que a bifurcação herdou: as da origem até o ponto do corte, inclusive. */
+  private async inherited(fork: { from: string; at?: string }): Promise<Awaited<ReturnType<typeof getSessionMessages>>> {
+    const origin = await getSessionMessages(fork.from);
+    if (!fork.at) return origin;
+    const cut = origin.findIndex((m) => m.uuid === fork.at);
+    return cut < 0 ? origin : origin.slice(0, cut + 1);
+  }
+
   async history(sessionId: string, limit = 300): Promise<LoggedEvent[]> {
     let messages = await getSessionMessages(sessionId);
     const open = this.sessions.get(sessionId);
-    if (open) messages = messages.slice(0, open.priorMessages);
-    const events = messages.slice(-limit).flatMap((m) => fromSessionMessage(m, imageStore.sink(sessionId, m.uuid)));
+    // Bifurcação sem turno próprio: o Claude Code só grava o log dela na primeira mensagem, então
+    // até lá o que se mostra é o histórico herdado da origem, cortado no ponto da bifurcação. Vem
+    // do meta, e não da sessão viva, para continuar valendo depois que ela é fechada.
+    const fork = messages.length === 0 ? this.meta.forkOf(sessionId) : undefined;
+    if (fork) messages = await this.inherited(fork);
+    else if (open) messages = messages.slice(0, open.priorMessages);
+    const events = messages
+      .slice(-limit)
+      .flatMap((m) => fromSessionMessage(m, imageStore.sink(sessionId, m.uuid)).map((e) => ({ ...e, uuid: m.uuid })));
     // Histórico salvo não tem seq; numerado localmente só para o cliente ordenar.
     return events.map((e, i) => ({ ...e, seq: i + 1, ts: 0 }) as LoggedEvent);
   }
@@ -344,7 +365,12 @@ export class Manager extends EventEmitter {
   }
 
   /** Retoma uma conversa salva no painel. Nunca em paralelo com um processo vivo no PC. */
-  async open(sessionId: string, opts: RunOptions & { fork?: boolean } = {}): Promise<PanelSession> {
+  /**
+   * Abre a conversa no painel. Com `fork`, ela vira uma conversa nova e a original fica intacta;
+   * junto com `at`, a nova nasce com o histórico só até aquele ponto — é a bifurcação no meio da
+   * conversa, para seguir por outro caminho sem perder o que já estava escrito.
+   */
+  async open(sessionId: string, opts: RunOptions & { fork?: boolean; at?: string } = {}): Promise<PanelSession> {
     const own = this.sessions.get(sessionId);
     if (own && !opts.fork) return own;
 
@@ -359,8 +385,17 @@ export class Manager extends EventEmitter {
         throw new HttpError(409, 'live_on_pc', { status: live.status, waitingFor: live.waitingFor, kind: live.kind });
       }
     }
-    const priorMessages = (await getSessionMessages(sessionId)).length;
-    return this.adopt(new PanelSession({ ...opts, cwd, resume: sessionId, priorMessages }));
+    const messages = await getSessionMessages(sessionId);
+    // Bifurcar no meio: o corte fica no último registro que fica de pé, e o resto é descartado.
+    const cut = opts.at ? messages.findIndex((m) => m.uuid === opts.at) : -1;
+    if (opts.at && cut < 0) throw new HttpError(404, 'fork_point_not_found');
+    const priorMessages = cut >= 0 ? cut + 1 : messages.length;
+    const session = this.adopt(
+      new PanelSession({ ...opts, cwd, resume: sessionId, resumeAt: opts.at, priorMessages, origin: opts.fork ? sessionId : undefined }),
+    );
+    // A bifurcação já nasce com ID próprio, então a origem é gravada aqui mesmo.
+    if (opts.fork) await this.meta.setFork(session.id, { from: sessionId, at: opts.at });
+    return session;
   }
 
   /** Assumir: encerra a sessão ociosa no PC e a retoma no painel. */
@@ -414,6 +449,8 @@ export class Manager extends EventEmitter {
     session.on('rekey', (from: string, to: string) => {
       this.sessions.delete(from);
       this.sessions.set(to, session);
+      // A bifurcação só ganha ID aqui; antes disso não havia a quem amarrar a origem.
+      if (session.origin) void this.meta.setFork(to, { from: session.origin, at: session.resumeAt });
       this.emit('rekey', from, to);
       this.emit('catalog');
     });

@@ -23,6 +23,7 @@ import { MetaStore } from './meta.ts';
 import { Notifier } from './notifier.ts';
 import { PushService, type PushPayload, type PushPrefs, type PushSubscriptionInput, type SendOptions } from './push.ts';
 import { sessionCost } from './session-cost.ts';
+import { AudioMonitor } from './audio.ts';
 import { SystemMonitor } from './system.ts';
 import { thumbnail } from './thumbs.ts';
 import { MAX_AUDIO_BYTES, transcribe, whisperAvailable } from './transcribe.ts';
@@ -34,6 +35,7 @@ const meta = new MetaStore();
 await meta.load();
 const manager = new Manager(live, meta);
 const monitor = new SystemMonitor(() => manager.planUsage());
+const audio = new AudioMonitor();
 monitor.on('error', (err) => app.log.warn({ err }, 'falha ao amostrar o sistema'));
 const policy = await loadAccessPolicy();
 // Outras máquinas suas com o Claude Remote: o app junta as conversas, e os avisos daqui vão para elas.
@@ -177,9 +179,10 @@ app.post<{ Body: RunBody & { cwd?: string; prompt: string; title?: string; attac
   async (req) => ({ sessionId: (await manager.create(req.body)).id }),
 );
 
-app.post<{ Params: IdParams; Body: RunBody & { fork?: boolean } }>(
+app.post<{ Params: IdParams; Body: RunBody & { fork?: boolean; at?: string } }>(
   '/api/sessions/:id/open',
-  { schema: { body: { type: 'object', properties: { fork: { type: 'boolean' }, ...runOptions } } } },
+  // `at`: UUID da entrada do log onde cortar, numa bifurcação no meio da conversa.
+  { schema: { body: { type: 'object', properties: { fork: { type: 'boolean' }, at: { type: 'string' }, ...runOptions } } } },
   async (req) => ({ sessionId: (await manager.open(req.params.id, req.body)).id }),
 );
 
@@ -505,7 +508,25 @@ app.post<{ Body: { payload: PushPayload; opts: SendOptions } }>(
 
 type ClientMsg =
   | { type: 'subscribe'; sessionId: string; sinceSeq?: number; runId?: string }
-  | { type: 'unsubscribe'; sessionId: string };
+  | { type: 'unsubscribe'; sessionId: string }
+  // Espectro do que sai pelas caixas, para o fundo da conversa (ver audio.ts).
+  | { type: 'listen_audio' }
+  | { type: 'unlisten_audio' };
+
+/** Quem está com o fundo de som na tela; a captura só roda enquanto este conjunto tem alguém. */
+const listening = new Set<WebSocket>();
+
+function listenAudio(socket: WebSocket, on: boolean): void {
+  if (on === listening.has(socket)) return;
+  if (on) {
+    listening.add(socket);
+    audio.addClient();
+    send(socket, { type: 'audio_ready', available: audio.available });
+  } else {
+    listening.delete(socket);
+    audio.removeClient();
+  }
+}
 
 const clients = new Map<WebSocket, Set<string>>();
 
@@ -552,10 +573,13 @@ app.get('/ws', { websocket: true }, (socket) => {
     }
     if (msg.type === 'subscribe') subscribe(socket, msg.sessionId, msg.sinceSeq ?? 0, msg.runId);
     else if (msg.type === 'unsubscribe') clients.get(socket)?.delete(msg.sessionId);
+    else if (msg.type === 'listen_audio') listenAudio(socket, true);
+    else if (msg.type === 'unlisten_audio') listenAudio(socket, false);
   });
   socket.on('close', () => {
     clearInterval(heartbeat);
     clients.delete(socket);
+    listenAudio(socket, false);
     monitor.removeClient();
   });
 
@@ -588,6 +612,9 @@ function broadcastAll(payload: unknown): void {
   for (const socket of clients.keys()) send(socket, payload);
 }
 monitor.on('system', (system) => broadcastAll({ type: 'system', system }));
+audio.on('spectrum', (spectrum: unknown) => {
+  for (const socket of listening) send(socket, { type: 'audio', spectrum });
+});
 monitor.on('usage', (usage) => broadcastAll({ type: 'usage', usage }));
 
 let catalogTimer: NodeJS.Timeout | undefined;

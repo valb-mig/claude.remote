@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { onAudio, onAudioReady, quietAudio, type Spectrum } from './audio'
 import { HOME, baseOf, machineOf, noteSession, noteSessions, useMachines } from './machines'
 import type { CatalogEntry, LoggedEvent, SessionSettings, SessionState, SystemSnapshot, UsageSnapshot } from './types'
 
@@ -118,6 +119,9 @@ class MachineSocket {
       this.lastMessageAt = Date.now()
       setConnection(this.machine, 'open')
       for (const [id, machine] of subscribed) if (machine === this.machine) this.sendSubscribe(id)
+      // O fundo de som pede a captura assim que a cena começa, que costuma ser antes de a conexão
+      // abrir; sem repetir aqui, o pedido se perderia na carga da página e em cada reconexão.
+      if (audioUsers > 0 && this.machine === HOME) this.send({ type: 'listen_audio' })
     }
     socket.onmessage = (e) => {
       this.lastMessageAt = Date.now()
@@ -162,6 +166,28 @@ class MachineSocket {
 }
 
 const sockets = new Map<string, MachineSocket>()
+
+// Várias telas podem querer o som ao mesmo tempo (a conversa e a miniatura dos ajustes): só a
+// primeira liga a captura no PC e só a última desliga, senão uma derrubaria a da outra.
+let audioUsers = 0
+
+/**
+ * Pede o espectro do que está tocando no PC enquanto a tela precisar, e devolve como parar. É
+ * sempre o som da máquina que serve o painel — o PC na sua frente —, não o da conversa aberta, que
+ * pode estar em outra máquina.
+ */
+export function listenAudio(): () => void {
+  if (audioUsers++ === 0) sockets.get(HOME)?.send({ type: 'listen_audio' })
+  let done = false
+  return () => {
+    if (done) return
+    done = true
+    if (--audioUsers === 0) {
+      sockets.get(HOME)?.send({ type: 'unlisten_audio' })
+      quietAudio()
+    }
+  }
+}
 
 const socketOf = (sessionId: string) => sockets.get(subscribed.get(sessionId) ?? machineOf(sessionId))
 
@@ -246,6 +272,8 @@ type ServerMsg =
   | { type: 'delta'; sessionId: string; text: string }
   | { type: 'rekey'; from: string; to: string }
   | { type: 'system'; system: SystemSnapshot }
+  | { type: 'audio'; spectrum: Spectrum }
+  | { type: 'audio_ready'; available: boolean }
   | { type: 'usage'; usage: UsageSnapshot }
 
 type LiveListener = (sessionId: string, runId: string, event: LoggedEvent) => void
@@ -263,6 +291,10 @@ function handle(machine: string, m: ServerMsg): void {
   switch (m.type) {
     case 'catalog':
       return onCatalog(machine, m.sessions)
+    case 'audio':
+      return onAudio(m.spectrum)
+    case 'audio_ready':
+      return onAudioReady(m.available)
     case 'system':
       return useStore.setState((s) => ({ systems: { ...s.systems, [machine]: m.system } }))
     case 'usage':

@@ -71,7 +71,8 @@ export type PanelEvent =
   | { kind: 'result'; ok: boolean; subtype: string; durationMs: number; costUsd?: number; turns: number }
   | { kind: 'exit'; error?: string };
 
-export type LoggedEvent = PanelEvent & { seq: number; ts: number };
+/** `uuid`: a entrada do log de onde o evento veio; é o ponto de corte de uma bifurcação. */
+export type LoggedEvent = PanelEvent & { seq: number; ts: number; uuid?: string };
 
 export type CatalogEntry = {
   sessionId: string;
@@ -89,6 +90,8 @@ export type CatalogEntry = {
   /** Outras tarefas em segundo plano (monitores, comandos): o turno acabou, mas o Claude vai voltar. */
   tasks?: { type: string; description: string }[];
   pinned?: boolean;
+  /** De onde esta conversa bifurcou; marca a conversa na lista e põe a tarja no topo do chat. */
+  forkedFrom?: { sessionId: string; title?: string };
   /** Máquina da conversa, posta pelo app ao juntar as de todas (ver machines.ts); `''` é a desta página. */
   machine?: string;
 };
