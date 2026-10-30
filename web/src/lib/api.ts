@@ -77,7 +77,8 @@ export const api = {
 
   create: (m: string, body: RunOptions & { cwd?: string; prompt: string; title?: string; attachments?: AttachmentPayload[] }) =>
     post<{ sessionId: string }>(`${at(m)}/sessions`, body),
-  open: (id: string, body: RunOptions & { fork?: boolean } = {}) => post<{ sessionId: string }>(`${sid(id)}/open`, body),
+  /** `at`: entrada do log onde cortar, para bifurcar no meio da conversa em vez de no fim. */
+  open: (id: string, body: RunOptions & { fork?: boolean; at?: string } = {}) => post<{ sessionId: string }>(`${sid(id)}/open`, body),
   takeover: (id: string) => post<{ sessionId: string }>(`${sid(id)}/takeover`),
   release: (id: string) => post<{ resumeCommand: string }>(`${sid(id)}/release`),
 

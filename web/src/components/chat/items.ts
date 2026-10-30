@@ -2,7 +2,7 @@ import type { PanelEvent } from '@/lib/types'
 
 type Of<K extends PanelEvent['kind']> = Extract<PanelEvent, { kind: K }>
 /** `ts`: quando chegou ao vivo (o histórico salvo não tem, vem 0). */
-export type Keyed = PanelEvent & { key: string; ts?: number }
+export type Keyed = PanelEvent & { key: string; ts?: number; uuid?: string }
 
 /** Tudo o que se sabe do subagente pelos eventos `agent`, já juntado. */
 export type AgentTask = Omit<Of<'agent'>, 'kind' | 'toolUseId'>
@@ -17,7 +17,11 @@ export const AGENT_TOOLS = new Set(['Agent', 'Task'])
 
 /** Unidade de renderização do chat; ações consecutivas viram um bloco de atividade. */
 export type Item =
-  | { type: 'user'; key: string; text: string; images?: string[] }
+  /**
+   * `from`: onde cortar para bifurcar a conversa nesta mensagem — a entrada do log logo antes dela.
+   * Falta na primeira mensagem (não há o que manter antes) e nas conversas sem UUID no histórico.
+   */
+  | { type: 'user'; key: string; text: string; images?: string[]; from?: string }
   | { type: 'assistant'; key: string; text: string }
   | { type: 'notice'; key: string; text: string }
   | { type: 'activity'; key: string; entries: ActivityEntry[] }
@@ -28,7 +32,23 @@ export type Item =
   | { type: 'exit'; key: string; error?: string }
   | { type: 'compacting'; key: string }
 
+/**
+ * Para cada mensagem do usuário, a entrada do log imediatamente anterior a ela: é onde uma
+ * bifurcação corta, mantendo tudo até ali e descartando a mensagem e o que veio depois.
+ */
+function forkPoints(events: Keyed[]): Map<string, string> {
+  const at = new Map<string, string>()
+  let previous: string | undefined
+  for (const e of events) {
+    if (!e.uuid) continue
+    if (e.kind === 'user' && previous && previous !== e.uuid) at.set(e.key, previous)
+    previous = e.uuid
+  }
+  return at
+}
+
 export function buildItems(events: Keyed[]): Item[] {
+  const forks = forkPoints(events)
   const results = new Map<string, Of<'tool_result'>>()
   const approvals = new Map<string, Of<'approval_resolved'>['decision']>()
   const questions = new Map<string, Of<'question_resolved'>>()
@@ -87,7 +107,7 @@ export function buildItems(events: Keyed[]): Item[] {
         else push({ type: 'assistant', key: e.key, text: e.text })
         break
       case 'user':
-        push({ type: 'user', key: e.key, text: e.text, images: e.images })
+        push({ type: 'user', key: e.key, text: e.text, images: e.images, from: forks.get(e.key) })
         break
       case 'notice':
         push({ type: 'notice', key: e.key, text: e.text })

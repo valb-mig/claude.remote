@@ -1,4 +1,4 @@
-import { CircleAlert, Clock, FilePen, FileText, Folder, Info, Link2, Loader2, Pause, Play, SquareTerminal } from 'lucide-react'
+import { CircleAlert, Clock, FilePen, FileText, Folder, GitFork, Info, Link2, Loader2, Pause, Play, SquareTerminal } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { toolLine } from '@/components/agents/model'
 import { useNow } from '@/components/agents/status'
@@ -74,16 +74,19 @@ function UserBubble({
   images,
   files,
   anchor,
+  onBranch,
 }: {
   sessionId: string
   text: string
   images?: string[]
   files?: string[]
   anchor?: string
+  /** Bifurcar a conversa nesta mensagem; ausente quando não dá (a primeira, ou histórico sem UUID). */
+  onBranch?: () => void
 }) {
   const { mine } = useGallery()
   return (
-    <div className="flex scroll-mt-16 flex-col items-end gap-1.5" data-user-msg={anchor}>
+    <div className="group flex scroll-mt-16 flex-col items-end gap-1.5" data-user-msg={anchor}>
       {images && images.length > 0 && (
         <div className="flex max-w-[85%] flex-wrap justify-end gap-1.5">
           {images.map((key) => (
@@ -92,10 +95,25 @@ function UserBubble({
         </div>
       )}
       {(text || files?.length) && (
-        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-primary px-3.5 py-2 text-sm whitespace-pre-wrap break-words text-primary-foreground">
-          {withMentions(text)}
-          {text && files?.length ? '\n\n' : null}
-          {files?.map((name, i) => <FileChip key={i} name={name} title={name} />)}
+        <div className="flex max-w-[85%] items-end gap-1">
+          {onBranch && (
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={onBranch}
+              title="Bifurcar daqui"
+              aria-label="Bifurcar a conversa nesta mensagem"
+              // No celular não há "passar o mouse": o botão fica sempre lá, só apagado.
+              className="shrink-0 text-muted-foreground opacity-40 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+            >
+              <GitFork />
+            </Button>
+          )}
+          <div className="min-w-0 rounded-2xl rounded-br-md bg-primary px-3.5 py-2 text-sm whitespace-pre-wrap break-words text-primary-foreground">
+            {withMentions(text)}
+            {text && files?.length ? '\n\n' : null}
+            {files?.map((name, i) => <FileChip key={i} name={name} title={name} />)}
+          </div>
         </div>
       )}
     </div>
@@ -212,18 +230,28 @@ function ItemView({
   item,
   sessionId,
   actionable,
+  onBranch,
   turn,
   cwd,
 }: {
   item: Item
   sessionId: string
   actionable: boolean
+  onBranch?: (at: string, text: string) => void
   turn?: TurnInfo
   cwd?: string
 }) {
   switch (item.type) {
     case 'user':
-      return <UserBubble sessionId={sessionId} text={item.text} images={item.images} anchor={item.key} />
+      return (
+        <UserBubble
+          sessionId={sessionId}
+          text={item.text}
+          images={item.images}
+          anchor={item.key}
+          onBranch={item.from && onBranch ? () => onBranch(item.from!, item.text) : undefined}
+        />
+      )
     case 'assistant':
       return <AssistantMessage id={`${sessionId}:${item.key}`} text={item.text} turn={turn} cwd={cwd} />
     case 'notice':
@@ -287,8 +315,11 @@ export function MessageList({
   background,
   uses,
   cwd,
+  onBranch,
 }: {
   items: Item[]
+  /** Bifurcar a conversa numa mensagem: nasce uma conversa nova com o histórico só até ali. */
+  onBranch?: (at: string, text: string) => void
   /** Mensagens na fila do celular, ainda não entregues ao PC. */
   queued: OutboxItem[]
   sessionId: string
@@ -313,7 +344,7 @@ export function MessageList({
         {items.map((item) => (
           // `data-item`: o mapa mental leva até aqui ao tocar num nó.
           <div key={item.key} data-item={item.key} className="scroll-mt-16 rounded-xl">
-            <ItemView item={item} sessionId={sessionId} actionable={actionable} turn={turns.get(item.key)} cwd={cwd} />
+            <ItemView item={item} sessionId={sessionId} actionable={actionable} onBranch={onBranch} turn={turns.get(item.key)} cwd={cwd} />
           </div>
         ))}
         {queued.map((item) => (

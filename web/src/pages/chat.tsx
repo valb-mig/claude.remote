@@ -10,6 +10,8 @@ import {
   ListChecks,
   Lock,
   LockOpen,
+  Maximize2,
+  Minimize2,
   LogOut,
   Menu,
   MessagesSquare,
@@ -72,7 +74,10 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { api, errorMessage } from '@/lib/api'
 import { projectName, stateInfo } from '@/lib/format'
 import { useGitStatus, useHome, useWidth } from '@/lib/hooks'
-import { useGlass } from '@/lib/wallpaper'
+import { useBackToClose } from '@/lib/back-close'
+import { useGlass, useScrim } from '@/lib/wallpaper'
+import { setZen, useZen } from '@/lib/zen'
+import { putDraft } from '@/lib/drafts'
 import { enqueue, useOutbox } from '@/lib/outbox'
 import { clearNotifications } from '@/lib/push'
 import { setAutoSpeech, speakNew, speechSupported, useSpeech } from '@/lib/speech'
@@ -128,6 +133,26 @@ function useContextUsage(id: string, enabled: boolean, turns: number): ContextUs
     api.context(id).then(setContext, () => {})
   }, [id, enabled, turns])
   return context
+}
+
+/**
+ * Tarja no topo de uma conversa bifurcada: diz de onde ela veio e que o histórico logo abaixo é
+ * herdado — está ali para consulta, e só o que for mandado daqui segue nesta conversa. Tocar leva
+ * à original, que continua intacta.
+ */
+function ForkBanner({ from }: { from: { sessionId: string; title?: string } }) {
+  return (
+    <Link
+      href={`/s/${from.sessionId}`}
+      className="mx-4 mt-4 flex items-start gap-2 rounded-lg border border-dashed bg-muted/30 px-3 py-2 text-xs text-muted-foreground hover:bg-muted/50"
+    >
+      <GitFork className="mt-0.5 size-3.5 shrink-0" />
+      <span className="min-w-0">
+        Bifurcada de <span className="font-medium text-foreground">{from.title || 'outra conversa'}</span>. O histórico abaixo veio de lá,
+        só para consulta; o que você mandar daqui segue nesta conversa.
+      </span>
+    </Link>
+  )
 }
 
 /** Chave de um evento ao vivo no chat; a resposta lida sozinha precisa da mesma, para o destaque. */
@@ -256,7 +281,13 @@ export function ChatPage({ id }: { id: string }) {
   }, [id])
 
   useEffect(() => {
-    if (rekeyed) swapChat(id, rekeyed, true)
+    if (!rekeyed) return
+    // Bifurcação: o texto esperava o ID novo para virar rascunho da conversa que nasceu.
+    if (branched.current !== null) {
+      void putDraft(rekeyed, { text: branched.current, attachments: [] })
+      branched.current = null
+    }
+    swapChat(id, rekeyed, true)
   }, [rekeyed, id])
 
   // Leitura automática (o alto-falante no topo): as respostas que chegam ao vivo, nunca o histórico.
@@ -315,7 +346,19 @@ export function ChatPage({ id }: { id: string }) {
   const git = useGitStatus(machine, project, turns)
   // Conversa parada: modelo/esforço/modo escolhidos agora valem quando ela for retomada.
   const [pending, setPending] = useState<RunOptions>({})
+  // Texto da mensagem bifurcada, esperando o ID que o rekey vai trazer.
+  const branched = useRef<string | null>(null)
   const glass = useGlass()
+  const scrim = useScrim()
+  const zen = useZen((s) => s.on)
+  // Esc no PC e o voltar do celular saem do zen antes de sair da conversa.
+  useBackToClose(zen, () => setZen(false))
+  useEffect(() => {
+    if (!zen) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setZen(false)
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [zen])
   const { scrollRef, contentRef, onScroll, atBottom, follow, setFollow, jumpToBottom } = useAutoScroll([
     items.length,
     queued.length,
@@ -386,12 +429,34 @@ export function ChatPage({ id }: { id: string }) {
       swapChat(id, sessionId)
     })
 
+  /**
+   * Bifurcar numa mensagem sua: nasce uma conversa com o histórico só até antes dela, e o texto
+   * volta para o campo para você reescrever e mandar por outro caminho. A original fica intacta na
+   * lista, que é a graça — dá para comparar as duas respostas depois.
+   *
+   * O ID da bifurcação só chega no `init` da sessão, pelo rekey, e não na resposta do POST, que
+   * ainda traz o antigo; por isso o texto espera em `branched` até saber onde virar rascunho.
+   */
+  const branch = (at: string, text: string) =>
+    run(async () => {
+      branched.current = text
+      const { sessionId } = await api.open(id, { fork: true, at })
+      if (sessionId !== id) {
+        branched.current = null
+        // Síncrono em memória, então a conversa nova já abre com o texto no campo.
+        void putDraft(sessionId, { text, attachments: [] })
+        swapChat(id, sessionId)
+      }
+      toast.success('Conversa bifurcada', { description: 'A original continua na lista, com tudo o que já estava escrito.' })
+    })
+
   return (
     <AgentsContext value={agentsContext}>
       <div className="flex min-h-0 flex-1 flex-col">
         <header
           className={cn(
             'flex shrink-0 items-center gap-1 border-b bg-background px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 compact:py-1',
+            zen && 'hidden',
             // Lado a lado: a conversa em foco (a que recebe o que é escolhido na lista) ganha uma faixa no topo.
             pane.split && pane.focused && 'shadow-[inset_0_2px_0_var(--color-primary)]',
           )}
@@ -408,7 +473,17 @@ export function ChatPage({ id }: { id: string }) {
             </Button>
           )}
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-medium">{entry?.title ?? 'Sessão'}</div>
+            <div className="flex items-center gap-1.5">
+              {/* No cabeçalho porque é o único lugar sempre à vista: a tarja lá embaixo fica no topo
+                  de um histórico longo, que a conversa nem chega a mostrar ao abrir. */}
+              {entry?.forkedFrom && (
+                <GitFork
+                  className="size-3.5 shrink-0 text-muted-foreground"
+                  aria-label={`Bifurcada de ${entry.forkedFrom.title || 'outra conversa'}`}
+                />
+              )}
+              <div className="truncate text-sm font-medium">{entry?.title ?? 'Sessão'}</div>
+            </div>
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <span className="min-w-0 truncate">{projectName(entry?.cwd)}</span>
               {machineLabel && (
@@ -438,6 +513,9 @@ export function ChatPage({ id }: { id: string }) {
               {autoSpeech ? <Volume2 /> : <VolumeOff />}
             </Button>
           )}
+          <Button variant="ghost" size="icon" onClick={() => setZen(true)} aria-label="Modo zen: só a conversa na tela" title="Modo zen">
+            <Minimize2 />
+          </Button>
           <Button
             variant="ghost"
             size="icon"
@@ -549,7 +627,15 @@ export function ChatPage({ id }: { id: string }) {
           )}
         </header>
 
-        <div ref={areaRef} className={cn('relative flex min-h-0 flex-1', pane.collapsed && 'hidden')}>
+        <div
+          ref={areaRef}
+          className={cn(
+            'relative flex min-h-0 flex-1',
+            // Sem o cabeçalho, quem segura a conversa longe do entalhe do celular é isto.
+            zen && 'pt-[env(safe-area-inset-top)]',
+            pane.collapsed && 'hidden',
+          )}
+        >
           <div className="relative min-w-0 flex-1" inert={shown === 'map'}>
             {/* A lâmina de vidro embaixo da coluna de mensagens: desfoca a cena atrás do texto, e as
                 margens seguem nítidas. Fica fora do scroller de propósito — dentro dele, o desfoque
@@ -557,12 +643,18 @@ export function ChatPage({ id }: { id: string }) {
             {glass && (
               <div
                 aria-hidden
-                className="pointer-events-none absolute inset-y-0 left-1/2 w-full max-w-3xl -translate-x-1/2 backdrop-blur-[1.5px]"
+                // A máscara esfumaça as laterais: sem ela o véu vira um retângulo com borda dura no meio da cena.
+                className={cn(
+                  'pointer-events-none absolute inset-y-0 left-1/2 w-full max-w-3xl -translate-x-1/2 backdrop-blur-[1.5px]',
+                  '[mask-image:linear-gradient(90deg,transparent,#000_7%,#000_93%,transparent)]',
+                  scrim,
+                )}
               />
             )}
             <StickyPrompt scrollRef={scrollRef} items={items} />
             <div ref={scrollRef} onScroll={onScroll} className="absolute inset-0 overflow-y-auto">
               <div ref={contentRef} className="mx-auto w-full max-w-3xl">
+                {entry?.forkedFrom && <ForkBanner from={entry.forkedFrom} />}
                 {history.events === null && !history.error ? (
                   <div className="space-y-4 p-4">
                     <Skeleton className="ml-auto h-10 w-2/3" />
@@ -585,12 +677,27 @@ export function ChatPage({ id }: { id: string }) {
                       background={background}
                       uses={uses}
                       cwd={entry?.cwd}
+                      onBranch={branch}
                     />
                   </>
                 )}
               </div>
             </div>
 
+            {zen && (
+              // Onde o cabeçalho estava. Fica sempre na tela, só apagado: um botão que some de vez
+              // deixaria sem saída quem não sabe do Esc nem do voltar.
+              <Button
+                variant="secondary"
+                size="icon"
+                onClick={() => setZen(false)}
+                aria-label="Sair do modo zen"
+                title="Sair do modo zen"
+                className="absolute top-[max(0.75rem,env(safe-area-inset-top))] right-3 z-20 size-9 rounded-full border opacity-30 shadow-lg transition-opacity hover:opacity-100 focus-visible:opacity-100"
+              >
+                <Maximize2 />
+              </Button>
+            )}
             <div className="pointer-events-none absolute right-3 bottom-3 z-10 flex flex-col items-end gap-2">
               {!atBottom && (
                 <Button
