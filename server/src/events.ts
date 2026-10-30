@@ -85,7 +85,11 @@ export type PanelEvent =
   | { kind: 'result'; ok: boolean; subtype: string; durationMs: number; costUsd?: number; turns: number }
   | { kind: 'exit'; error?: string };
 
-export type LoggedEvent = PanelEvent & { seq: number; ts: number };
+/**
+ * `uuid`: a entrada do log de onde o evento veio. É por ele que uma bifurcação sabe onde cortar a
+ * conversa (ver `Manager.open`); só vem no histórico lido do arquivo, que é de onde se bifurca.
+ */
+export type LoggedEvent = PanelEvent & { seq: number; ts: number; uuid?: string };
 
 const MAX_TEXT = 8_000;
 

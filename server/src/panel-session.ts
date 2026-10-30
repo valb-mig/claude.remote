@@ -83,6 +83,13 @@ export type PanelSessionOptions = {
   label?: string;
   resume?: string;
   fork?: boolean;
+  /** Bifurcar aqui: retoma só até esta entrada do log e descarta o que vem depois. */
+  resumeAt?: string;
+  /**
+   * Conversa de onde esta bifurcou. O CLI só grava o log da nova no primeiro turno, então até lá o
+   * painel mostra o histórico da origem, cortado em `priorMessages` (ver `Manager.history`).
+   */
+  origin?: string;
   model?: string;
   effort?: EffortLevel;
   permissionMode?: PermissionMode;
@@ -102,6 +109,10 @@ export class PanelSession extends EventEmitter {
   /** Identifica este processo: o `seq` recomeça a cada abertura da mesma conversa. */
   readonly runId = randomUUID().slice(0, 8);
   readonly priorMessages: number;
+  /** Conversa de onde esta bifurcou, enquanto a nova ainda não tem log próprio. */
+  readonly origin?: string;
+  /** Ponto do log da origem onde esta bifurcação cortou. */
+  readonly resumeAt?: string;
   readonly label?: string;
   state: SessionState;
   waitingFor?: string;
@@ -133,10 +144,15 @@ export class PanelSession extends EventEmitter {
     super();
     this.cwd = opts.cwd;
     this.priorMessages = opts.priorMessages ?? 0;
+    this.origin = opts.origin;
+    this.resumeAt = opts.resumeAt;
     this.label = opts.label;
-    // Sessão nova recebe um ID conhecido de antemão; numa bifurcação o ID chega no init.
-    const freshId = opts.resume ? undefined : randomUUID();
-    this.id = opts.resume ?? freshId!;
+    // Sessão nova recebe um ID conhecido de antemão, e a bifurcação também: o SDK aceita escolher o
+    // ID da conversa bifurcada junto com `forkSession`. Sem isso ele só chegaria no `init`, que em
+    // modo headless só vem no primeiro turno — e até lá o painel não teria a quem amarrar o
+    // rascunho, a origem, nem para onde navegar.
+    const freshId = opts.resume && !opts.fork ? undefined : randomUUID();
+    this.id = opts.fork ? freshId! : (opts.resume ?? freshId!);
     this.state = 'idle';
 
     this.q = query({
@@ -144,6 +160,7 @@ export class PanelSession extends EventEmitter {
       options: {
         cwd: opts.cwd,
         resume: opts.resume,
+        resumeSessionAt: opts.resumeAt,
         forkSession: opts.fork,
         sessionId: freshId,
         model: opts.model,
@@ -436,9 +453,12 @@ export class PanelSession extends EventEmitter {
     // Resultados de ferramentas podem trazer imagens (prints, arquivos lidos): vão para o cache.
     const sink = msg.type === 'user' ? imageStore.sink(this.id, (msg as { uuid?: string }).uuid ?? randomUUID()) : undefined;
     const { events, delta } = fromSdkMessage(msg, sink);
+    // O UUID vem junto para o que chega ao vivo também, senão só daria para bifurcar no histórico
+    // já lido do arquivo — e não no turno que acabou de acontecer.
+    const uuid = (msg as { uuid?: string }).uuid;
     for (const ev of events) {
       this.track(ev);
-      this.record(ev);
+      this.record(ev, uuid);
     }
     // Fim do turno: o que ficou sem resultado (turno interrompido) não está mais rodando.
     if (msg.type === 'result') for (const [id, t] of this.openTools) if (t.scope === null) this.openTools.delete(id);
@@ -505,8 +525,9 @@ export class PanelSession extends EventEmitter {
     this.emit('state');
   }
 
-  private record(ev: PanelEvent): void {
-    const logged = { ...ev, seq: ++this.seq, ts: Date.now() } as LoggedEvent;
+  /** `uuid`: a entrada do log de onde o evento veio, quando se sabe; é o ponto de corte de uma bifurcação. */
+  private record(ev: PanelEvent, uuid?: string): void {
+    const logged = { ...ev, seq: ++this.seq, ts: Date.now(), ...(uuid ? { uuid } : {}) } as LoggedEvent;
     this.log.push(logged);
     if (this.log.length > MAX_EVENTS) this.log.shift();
     this.emit('event', logged);
