@@ -2,6 +2,7 @@ import { Armchair, FolderGit2, House, MessagesSquare, Monitor, OctagonAlert, Pan
 import { Link, useLocation } from 'wouter'
 import { severityOf } from '@/components/pc-status'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { setComputerOpen, useComputer } from '@/lib/computer'
 import { bytes, resetTime, shortDuration } from '@/lib/format'
 import { HOME, useMachineFilter, useMachines } from '@/lib/machines'
 import { setSidebarCollapsed, useSidebar } from '@/lib/sidebar'
@@ -46,8 +47,9 @@ function Ring({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Link
-          href="/computador"
+        <button
+          type="button"
+          onClick={() => setComputerOpen(true)}
           aria-label={tip}
           className="flex w-14 flex-col items-center gap-0.5 rounded-lg py-1 hover:bg-muted/60"
         >
@@ -78,7 +80,7 @@ function Ring({
             )}
             {label}
           </span>
-        </Link>
+        </button>
       </TooltipTrigger>
       <TooltipContent side="right">{tip}</TooltipContent>
     </Tooltip>
@@ -152,6 +154,7 @@ export function SidebarRail() {
   const name = useMachines((s) => (s.machines.length > 1 ? s.machines.find((m) => m.id === machine)?.name : undefined))
   const of = (text: string) => (name ? `${name} · ${text}` : text)
   const collapsed = useSidebar((s) => s.collapsed)
+  const computer = useComputer((s) => s.open)
   const toggle = () => setSidebarCollapsed(!collapsed)
   const coding = useWakatimeToday(machine)
   const plan = usage?.plan?.available ? usage.plan : null
@@ -182,7 +185,8 @@ export function SidebarRail() {
         <RailItem label="Projetos" href="/projetos" active={location.startsWith('/projetos')}>
           <FolderGit2 />
         </RailItem>
-        <RailItem label="Computador" href="/computador" active={location.startsWith('/computador')}>
+        {/* Abre por cima, sem tirar você da conversa (ver lib/computer.ts). */}
+        <RailItem label="Computador" onClick={() => setComputerOpen(true)} active={computer}>
           <Monitor />
         </RailItem>
         <RailItem label="Salinha: seus claudinhos trabalhando" href="/salinha">

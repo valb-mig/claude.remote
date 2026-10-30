@@ -2,7 +2,6 @@ import { Armchair, ChevronRight, RefreshCw } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'wouter'
-import { PageHeader } from '@/components/layout'
 import { MachineFilter } from '@/components/machine-filter'
 import { Meter, WindowMeter } from '@/components/pc-status'
 import { PushSettings } from '@/components/push-settings'
@@ -12,7 +11,9 @@ import { UpdateCard } from '@/components/update-card'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { api } from '@/lib/api'
+import { setComputerOpen, useComputer } from '@/lib/computer'
 import { bytes, relativeTime, uptime } from '@/lib/format'
 import { HOME, baseOf, useMachineFilter } from '@/lib/machines'
 import { reconnectNow, useStore } from '@/lib/store'
@@ -33,7 +34,23 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
   )
 }
 
-export function ComputerPage() {
+/**
+ * O painel Computador, por cima da tela em que você está (ver lib/computer.ts). Abre da alça, dos
+ * anéis, do quadro do PC no início e da aba no celular. A lista rola por dentro, e o título, o filtro
+ * de máquina e o X ficam no topo.
+ */
+export function ComputerSheet() {
+  const open = useComputer((s) => s.open)
+  return (
+    <Sheet open={open} onOpenChange={setComputerOpen}>
+      <SheetContent side="bottom" className="gap-0 p-0 data-[side=bottom]:h-[92dvh] lg:mx-auto lg:max-w-3xl lg:rounded-t-xl lg:border-x">
+        <Computer />
+      </SheetContent>
+    </Sheet>
+  )
+}
+
+function Computer() {
   // Com várias máquinas, os cartões são os da escolhida no topo (sem "Todas").
   const machine = useMachineFilter() ?? HOME
   const connection = useStore((s) => s.connections[machine] ?? 'connecting')
@@ -62,11 +79,18 @@ export function ComputerPage() {
   const c = CONNECTION[connection]
   return (
     <>
-      <PageHeader title="Computador" />
+      <SheetHeader>
+        <SheetTitle>Computador</SheetTitle>
+        <SheetDescription>O PC, os limites do Claude e os ajustes deste aparelho.</SheetDescription>
+      </SheetHeader>
       <MachineFilter all={false} className="px-4 pb-3" />
-      <div className="space-y-4 px-4 pb-6">
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
         {/* Link próprio, para deixar de fundo num tablet ou monitor (ver pages/office.tsx). */}
-        <Link href="/salinha" className="flex items-center gap-3 rounded-xl border bg-card p-3 hover:bg-muted/50 active:bg-muted">
+        <Link
+          href="/salinha"
+          // A salinha toma a tela toda: o painel fecha, para não estar aberto por cima ao voltar dela.
+          onClick={() => setComputerOpen(false)}
+          className="flex items-center gap-3 rounded-xl border bg-card p-3 hover:bg-muted/50 active:bg-muted">
           <Armchair className="size-5 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium">Salinha</div>

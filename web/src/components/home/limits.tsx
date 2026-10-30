@@ -1,8 +1,8 @@
 import { ChevronRight, TriangleAlert } from 'lucide-react'
 import { useSyncExternalStore } from 'react'
-import { Link } from 'wouter'
 import { Meter } from '@/components/pc-status'
 import { Skeleton } from '@/components/ui/skeleton'
+import { setComputerOpen } from '@/lib/computer'
 import { bytes } from '@/lib/format'
 import { HOME, useMachines } from '@/lib/machines'
 import { useStore } from '@/lib/store'
@@ -62,7 +62,7 @@ function Window({ label, window, span, now }: { label: string; window: UsageWind
   )
 }
 
-/** Limites do plano com previsão e, embaixo, o PC num relance (toque leva à aba Computador). */
+/** Limites do plano com previsão e, embaixo, o PC num relance (toque abre o painel Computador). */
 export function Limits() {
   const now = useSyncExternalStore(everyMinute, minute)
   const usage = useStore((s) => s.usages[HOME])
@@ -95,7 +95,11 @@ export function Limits() {
         </div>
       )}
 
-      <Link href="/computador" className="-mx-4 -mb-4 mt-4 flex items-center gap-3 border-t px-4 py-2.5 text-xs text-muted-foreground hover:bg-muted/50">
+      <button
+        type="button"
+        onClick={() => setComputerOpen(true)}
+        className="-mx-4 -mb-4 mt-4 flex w-[calc(100%+2rem)] items-center gap-3 border-t px-4 py-2.5 text-left text-xs text-muted-foreground hover:bg-muted/50"
+      >
         <span className="shrink-0 font-medium text-foreground">{name ?? 'PC'}</span>
         {system ? (
           <span className="min-w-0 flex-1 truncate">
@@ -106,7 +110,7 @@ export function Limits() {
           <Skeleton className="h-3 flex-1" />
         )}
         <ChevronRight className="size-4 shrink-0" />
-      </Link>
+      </button>
     </HomeCard>
   )
 }

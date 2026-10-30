@@ -1,6 +1,6 @@
 import { ChevronRight, OctagonAlert, TriangleAlert } from 'lucide-react'
-import { Link } from 'wouter'
 import { Skeleton } from '@/components/ui/skeleton'
+import { setComputerOpen } from '@/lib/computer'
 import { bytes, resetTime } from '@/lib/format'
 import { useMachines } from '@/lib/machines'
 import { useStore } from '@/lib/store'
@@ -75,7 +75,7 @@ export function WindowMeter({ label, window }: { label: string; window: UsageWin
   )
 }
 
-/** Bloco da home: o estado do PC e do plano num relance; toque abre a aba Computador. */
+/** Bloco da home: o estado do PC e do plano num relance; toque abre o painel Computador. */
 export function PcStatus({ machine }: { machine: string }) {
   const system = useStore((s) => s.systems[machine])
   const usage = useStore((s) => s.usages[machine])
@@ -84,7 +84,7 @@ export function PcStatus({ machine }: { machine: string }) {
   const plan = usage?.plan
 
   return (
-    <Link href="/computador" className="mx-4 mb-3 block rounded-xl border bg-card p-3 active:bg-muted/50">
+    <button type="button" onClick={() => setComputerOpen(true)} className="mx-4 mb-3 block w-[calc(100%-2rem)] rounded-xl border bg-card p-3 text-left active:bg-muted/50">
       <div className="mb-2.5 flex items-center justify-between text-xs font-medium text-muted-foreground">
         <span>{name ? `${name} · PC e uso do Claude` : 'PC e uso do Claude'}</span>
         <ChevronRight className="size-4" />
@@ -125,6 +125,6 @@ export function PcStatus({ machine }: { machine: string }) {
           </>
         )}
       </div>
-    </Link>
+    </button>
   )
 }

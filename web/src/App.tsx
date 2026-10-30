@@ -1,7 +1,9 @@
 import { useEffect } from 'react'
 import { Redirect, Route, Switch, useLocation } from 'wouter'
+import { ComputerSheet } from '@/components/computer-sheet'
 import { BottomNav, ConnectionBanner } from '@/components/layout'
 import { SidebarRail } from '@/components/sidebar-rail'
+import { setComputerOpen } from '@/lib/computer'
 import { useWide } from '@/lib/hooks'
 import { loadMachines } from '@/lib/machines'
 import { useSidebar } from '@/lib/sidebar'
@@ -15,7 +17,6 @@ import { connect } from '@/lib/store'
 import { watchUpdates } from '@/lib/update'
 import { rememberTab } from '@/lib/tabs'
 import { cn } from '@/lib/utils'
-import { ComputerPage } from '@/pages/computer'
 import { HomePage } from '@/pages/home'
 import { NewChatPage } from '@/pages/new-chat'
 import { OfficePage } from '@/pages/office'
@@ -87,6 +88,7 @@ export default function App() {
           </Route>
         </Switch>
       </div>
+      <ComputerSheet />
     </div>
   )
 }
@@ -113,7 +115,7 @@ function Sidebar() {
   )
 }
 
-/** Início, Conversas, Projetos e Computador; no celular deitado, as abas viram uma coluna na lateral. */
+/** Início, Conversas e Projetos (o Computador abre por cima); no celular deitado, as abas viram uma coluna na lateral. */
 function TabPages({ wide }: { wide: boolean }) {
   const [location] = useLocation()
   // O "voltar" de uma conversa leva de volta à aba de onde ela foi aberta.
@@ -133,7 +135,7 @@ function TabPages({ wide }: { wide: boolean }) {
               <ProjectsPage />
             </Route>
             <Route path="/computador">
-              <ComputerPage />
+              <OpenComputer />
             </Route>
             <Route>
               <Redirect to="/" />
@@ -144,6 +146,16 @@ function TabPages({ wide }: { wide: boolean }) {
       {!wide && <BottomNav />}
     </div>
   )
+}
+
+/** O endereço da antiga aba Computador (favoritos, histórico): abre o painel por cima do início. */
+function OpenComputer() {
+  const [, navigate] = useLocation()
+  useEffect(() => {
+    setComputerOpen(true)
+    navigate('/', { replace: true })
+  }, [navigate])
+  return null
 }
 
 /** Tela larga sem conversa aberta: a home, com a lista de conversas ao lado (ou recolhida na alça). */
